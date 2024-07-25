@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -35,7 +35,7 @@ class Program
     {
         Console.WriteLine($"Произошла ошибка: {exception.Message}");
     }
-
+    // /start
     private static async Task Start(ITelegramBotClient botClient, long chatId)
     {
         string welcomeMessage = "Здравствуйте! 🎉\n\n" +
@@ -75,6 +75,7 @@ class Program
 
         await botClient.SendTextMessageAsync(chatId, welcomeMessage, replyMarkup: inlineKeyboard);
     }
+    // полувение под категорий
     private static async Task SendFilteredCategoriesAsync(long chatId, string messageText, string keyword, ITelegramBotClient botClient)
     {
         string url = "https://soc-rocket.ru/api/v2/?action=services&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP";
@@ -128,7 +129,8 @@ class Program
             await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при парсинге ответа. 😔");
         }
     }
-    private static async Task GetUserBalance(long chatId, ITelegramBotClient botClient)
+    //баланс
+    private static async Task GetUserBalance(long chatId, ITelegramBotClient botClient, string name, long id )
     {
         string filePath = "users.xlsx";
         ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
@@ -156,11 +158,18 @@ class Program
                         {
                             new[]
                             {
-                                InlineKeyboardButton.WithCallbackData("🔙 Главная", "main")
+                                InlineKeyboardButton.WithUrl("Написать","https://t.me/tekna_one")
+                            },
+                            new[]
+                            {
+                                InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
                             }
                         });
-                        await botClient.SendTextMessageAsync(chatId, $"Ваш баланс: {balance} руб.\n\n Для пополнения: \n/pay сумма", replyMarkup: inlineKeyboard);
-                        
+                        await botClient.SendTextMessageAsync(
+                            chatId,
+                            $"🖐Здравствуйте, {name}! \n Ваш ID:  {id} \n⌛Время (МСК):  {TimeZoneInfo.ConvertTime(DateTime.Now, TimeZoneInfo.FindSystemTimeZoneById("Russian Standard Time"))}. \n💚Ваш баланс: {balance} руб.\n\n 🧡Для пополнения напишите нам!",
+                            replyMarkup: inlineKeyboard
+                        );
                         userFound = true;
                         break;
                     }
@@ -176,6 +185,7 @@ class Program
             }
         }
     }
+    //поиск айтемов по категории
     private static async Task SendFilteredItemsAsync(string category, long chatId, ITelegramBotClient botClient)
     {
         try
@@ -233,6 +243,7 @@ class Program
             await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при парсинге ответа. 😔");
         }
     }
+    // поолучение и вывод информации о заказе
     private static async Task SendServiceDetailsAsync(int serviceId, long chatId, ITelegramBotClient botClient)
     {
         try
@@ -246,11 +257,13 @@ class Program
 
             if (service != null)
             {
+                decimal rate = service["rate"].Value<decimal>();
+                int price = (int)rate;
                 string serviceDetails = $@"
 🔸Товар №{serviceId} 🔸
 
 🟥 Название: {service["name"]}
-🟦 Цена за тысячу: {service["rate"]}
+🟦 Цена за тысячу: {price * 2} ₽
 🟧 Минимальное количество: {service["min"]}
 🟩 Максимальное количество: {service["max"]}
 🟨 Докрутка: {service["refill"]}
@@ -283,7 +296,8 @@ class Program
             await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при парсинге ответа. 😔");
         }
     }
-    static async Task CancelOrder(ITelegramBotClient botClient, string orderId)
+    // отмена заказа
+    static async Task CancelOrder(ITelegramBotClient botClient, string orderId, long chatId)
     {
         string requestUri = $"https://soc-rocket.ru/api/v2/?action=cancel&order={orderId}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP";
 
@@ -296,13 +310,16 @@ class Program
             JObject jsonResponse = JObject.Parse(responseBody);
 
             string cancelStatus = (string)jsonResponse["cancel"];
+            var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                {
+                    new[]
+                    {
+                        InlineKeyboardButton.WithCallbackData("🔙 Назад", "main")
+                    }
+                });
             if (cancelStatus == "ok")
             {
-                Console.WriteLine($"Order ID {orderId} has been successfully cancelled.");
-            }
-            else
-            {
-                Console.WriteLine($"Failed to cancel Order ID {orderId}. Error: {jsonResponse["error"]}");
+                await botClient.SendTextMessageAsync(chatId: chatId, $"💚Ваш заказ №{orderId} был отменен!", replyMarkup: inlineKeyboard);
             }
         }
         catch (HttpRequestException e)
@@ -395,10 +412,13 @@ class Program
 
                                     if (statusResponse.ContainsKey(orderId))
                                     {
+                                        
                                         var orderInfo = statusResponse[orderId];
+                                        decimal rate = orderInfo["charge"].Value<decimal>();
+                                        int price = (int)rate;
                                         string statusMessage =
                                                 $"📝  Информация о заказе {orderId}:\n\n" +
-                                                                   $"🔴 Стоимость: {orderInfo["charge"]} {orderInfo["currency"]}\n" +
+                                                                   $"🔴 Стоимость: {price} {orderInfo["currency"]}\n" +
                                                                    $"🔹 ID: {orderInfo["service"]}\n" +
                                                                    $"🌐 Ссылка: {orderInfo["link"]}\n" +
                                                                    $"📦 Количество: {orderInfo["quantity"]}\n" +
@@ -459,53 +479,141 @@ class Program
                             {
                                 try
                                 {
-                                    string responseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=add&service={parts[1]}&link={parts[3]}&quantity={parts[2]}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
-                                    JObject jsonResponse = JObject.Parse(responseBody);
-                                    if (jsonResponse.ContainsKey("order"))
+                                    HttpResponseMessage response = await HttpClient.GetAsync("https://soc-rocket.ru/api/v2/?action=services&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
+                                    response.EnsureSuccessStatusCode();
+
+                                    string responseBody1 = await response.Content.ReadAsStringAsync();
+                                    JArray jsonArray = JArray.Parse(responseBody1);
+                                    var service = jsonArray.FirstOrDefault(s => s["service"]?.ToString() == parts[1]);
+
+                                    if (service != null)
                                     {
-                                        var orderId = jsonResponse["order"].ToString();
-                                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                                        decimal rate = service["rate"].Value<decimal>();
+                                        decimal price = rate * 2;
+                                        Console.WriteLine($"Rate: {rate}, Price: {price}");
+
+                                        string filePath = "users.xlsx";
+                                        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+
+                                        if (!System.IO.File.Exists(filePath))
                                         {
+                                            Console.WriteLine("Файл не найден.");
+                                            return;
+                                        }
+
+                                        using (var package = new ExcelPackage(new FileInfo(filePath)))
+                                        {
+                                            var worksheet = package.Workbook.Worksheets["Users"];
+                                            var rowCount = worksheet.Dimension?.Rows;
+
+                                            if (rowCount.HasValue)
+                                            {
+                                                bool userFound = false;
+
+                                                for (int row = 2; row <= rowCount.Value; row++)
+                                                {
+                                                    if (worksheet.Cells[row, 1].Value.ToString() == chatId.ToString())
+                                                    {
+                                                        var balanceValue = worksheet.Cells[row, 3].Value;
+                                                        if (balanceValue == null || !decimal.TryParse(balanceValue.ToString(), out decimal balance))
+                                                        {
+                                                            await botClient.SendTextMessageAsync(chatId, "Ошибка при чтении баланса пользователя.");
+                                                            return;
+                                                        }
+                                                        if (int.TryParse(parts[2], out int partsValue))
+                                                        {
+                                                            decimal amountToDeduct = (price / 1000m) * partsValue;
+                                                            string formattedAmountToDeduct = amountToDeduct.ToString("0.0");
+                                                            Console.WriteLine($"Balance: {balance}, Amount to Deduct: {amountToDeduct}");
+                                                            if (balance >= amountToDeduct)
+                                                            {
+                                                                // Выполнение заказа
+                                                                string responseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=add&service={parts[1]}&link={parts[3]}&quantity={parts[2]}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
+                                                                JObject jsonResponse = JObject.Parse(responseBody);
+                                                                if (jsonResponse.ContainsKey("order"))
+                                                                {
+                                                                    var orderId = jsonResponse["order"].ToString();
+                                                                    var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                                                                    {
+                                            new[]
+                                            {
+                                                InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
+                                            }
+                                        });
+
+                                                                    string statusResponseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=status&orders={orderId}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
+                                                                    JObject statusResponse = JObject.Parse(statusResponseBody);
+
+                                                                    if (statusResponse.ContainsKey(orderId))
+                                                                    {
+                                                                        var orderInfo = statusResponse[orderId];
+                                                                        decimal charge = orderInfo["charge"].Value<decimal>();
+                                                                        string statusMessage = $"🚀✨ Заказ №{orderId} успешно создан! 🎉🥳" +
+                                                                            $"\n" +
+                                                                            $"📝  Информация о заказе {orderId}:\n\n" +
+                                                                            $"🔴 Стоимость: {charge * 2} {orderInfo["currency"]}\n" +
+                                                                            $"🔹 ID: {orderInfo["service"]}\n" +
+                                                                            $"🌐 Ссылка: {orderInfo["link"]}\n" +
+                                                                            $"📦 Количество: {orderInfo["quantity"]}\n" +
+                                                                            $"📊 Начальное количество: {orderInfo["start_count"]}\n" +
+                                                                            $"📅 Дата: {orderInfo["date"]}\n" +
+                                                                            $"✅ Статус: {orderInfo["status"]}\n" +
+                                                                            $"📦 Остаток: {orderInfo["remains"]}\n\n 💚 Для получения информации о заказе: \n/status {orderId}";
+
+                                                                        await botClient.SendTextMessageAsync(chatId, statusMessage, replyMarkup: inlineKeyboard);
+                                                                        worksheet.Cells[row, 3].Value = balance - amountToDeduct;
+                                                                        package.Save();
+                                                                    }
+                                                                    else if (statusResponse.ContainsKey("error"))
+                                                                    {
+                                                                        string errorMessage = $"Ошибка при получении статуса заказа {orderId}: {statusResponse["error"]}";
+                                                                        await botClient.SendTextMessageAsync(chatId, errorMessage);
+                                                                    }
+                                                                }
+                                                                else if (jsonResponse.ContainsKey("error"))
+                                                                {
+                                                                    await botClient.SendTextMessageAsync(chatId, $"Ошибка: {jsonResponse["error"]}");
+                                                                }
+                                                                else
+                                                                {
+                                                                    Console.WriteLine("Неизвестный ответ от сервера");
+                                                                }
+
+                                                                userFound = true;
+                                                                break;
+                                                            }
+                                                            else
+                                                            {
+                                                                var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                                                                {
+                                        new[]
+                                        {
+                                            InlineKeyboardButton.WithUrl("Написать","https://t.me/tekna_one")
+                                        },
                                         new[]
                                         {
                                             InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
                                         }
                                     });
-
-                                        string statusResponseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=status&orders={orderId}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
-                                        JObject statusResponse = JObject.Parse(statusResponseBody);
-
-                                        if (statusResponse.ContainsKey(orderId))
-                                        {
-                                            var orderInfo = statusResponse[orderId];
-                                            string statusMessage = $"🚀✨ Заказ №{orderId} успешно создан! 🎉🥳" +
-                                                $"\n" +
-                                                $"📝  Информация о заказе {orderId}:\n\n" +
-                                                                   $"🔴 Стоимость: {orderInfo["charge"]} {orderInfo["currency"]}\n" +
-                                                                   $"🔹 ID: {orderInfo["service"]}\n" +
-                                                                   $"🌐 Ссылка: {orderInfo["link"]}\n" +
-                                                                   $"📦 Количество: {orderInfo["quantity"]}\n" +
-                                                                   $"📊 Начальное количество: {orderInfo["start_count"]}\n" +
-                                                                   $"📅 Дата: {orderInfo["date"]}\n" +
-                                                                   $"✅ Статус: {orderInfo["status"]}\n" +
-                                                                   $"📦 Остаток: {orderInfo["remains"]}\n\n 💚 Для получения информации о заказе: \n/status {orderId}";
-
-
-                                            await botClient.SendTextMessageAsync(chatId, statusMessage, replyMarkup: inlineKeyboard);
+                                                                await botClient.SendTextMessageAsync(chatId, $"❌ У вас не хватает средств на балансе! ❌" +
+                                                                    "\r\n\n" +
+                                                                    $"💚Ваш баланс: {balance} ₽\n" +
+                                                                    $"💛Требуется к оплате: {formattedAmountToDeduct} ₽\n\n" +
+                                                                    $"💥Для пополнения баланса напишите нам!", replyMarkup: inlineKeyboard);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                if (!userFound)
+                                                {
+                                                    await botClient.SendTextMessageAsync(chatId, "Произошла ошибка. 😔");
+                                                }
+                                            }
+                                            else
+                                            {
+                                                Console.WriteLine("В файле нет данных.");
+                                            }
                                         }
-                                        else if (statusResponse.ContainsKey("error"))
-                                        {
-                                            string errorMessage = $"Ошибка при получении статуса заказа {orderId}: {statusResponse["error"]}";
-                                            await botClient.SendTextMessageAsync(chatId, errorMessage);
-                                        }
-                                    }
-                                    else if (jsonResponse.ContainsKey("error"))
-                                    {
-                                        await botClient.SendTextMessageAsync(chatId, $"Ошибка: {jsonResponse["error"]}");
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine("Неизвестный ответ от сервера");
                                     }
                                 }
                                 catch (HttpRequestException e)
@@ -517,20 +625,98 @@ class Program
                     }
                     else if (messageText == "/balance")
                     {
-                        await GetUserBalance(chatId, botClient);
+                        await GetUserBalance(chatId, botClient, message.From.FirstName, message.From.Id);
                     }
                     else if (messageText.StartsWith("/del"))
                     {
                         var parts = messageText.Split(' ');
                         if (parts.Length < 2)
                         {
-                            await botClient.SendTextMessageAsync(chatId, "Ошибка!");
+                            await botClient.SendTextMessageAsync(chatId, "Вы не ввели id заказа!");
                         }
                         else
                         {
-                            await CancelOrder(botClient, parts[1]);
+                            await CancelOrder(botClient, parts[1], chatId);
                         }
                     }
+                    else if (messageText.StartsWith("/pay"))
+                    {
+                        if (message.From.Id == 1416004677)
+                        {
+                            string filePath = "users.xlsx";
+                            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+
+                            if (!System.IO.File.Exists(filePath))
+                            {
+                                Console.WriteLine("Файл не найден.");
+                                return;
+                            }
+
+                            var parts = messageText.Split(' ');
+                            if (parts.Length < 3)
+                            {
+                                await botClient.SendTextMessageAsync(chatId, "Вы не ввели id заказа или данные для обновления!");
+                                return;
+                            }
+
+                            string searchChatId = parts[1];
+                            string newData = parts[2];
+
+                            using (var package = new ExcelPackage(new FileInfo(filePath)))
+                            {
+                                var worksheet = package.Workbook.Worksheets["Users"];
+                                var rowCount = worksheet.Dimension?.Rows;
+
+                                if (rowCount.HasValue)
+                                {
+                                    bool userFound = false;
+
+                                    for (int row = 2; row <= rowCount.Value; row++)
+                                    {
+                                        if (worksheet.Cells[row, 1].Value.ToString() == searchChatId)
+                                        {
+                                            // Assuming the column to update is column 3 (you can change this to the correct column index)
+                                            worksheet.Cells[row, 3].Value = newData;
+                                            package.Save();
+
+                                            string message1 = $"ID: {searchChatId}\nНовый баланс: {newData}";
+                                            await botClient.SendTextMessageAsync(chatId, message1);
+                                            userFound = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!userFound)
+                                    {
+                                        await botClient.SendTextMessageAsync(chatId, "Пользователь не найден.");
+                                    }
+                                }
+                                else
+                                {
+                                    Console.WriteLine("В файле нет данных.");
+                                }
+                            }
+                        }
+                    }
+                    else if (messageText == "/help")
+                    {
+                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                        {
+                            new[]
+                            {
+                                InlineKeyboardButton.WithUrl("Написать","https://t.me/tekna_one")
+                            },
+                            new[]
+                            {
+                                InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
+                            }
+                        });
+                        await botClient.SendTextMessageAsync(chatId, "⚒Столкнулись с роблемой? \n🎇 Тогда нпишите нам!🎇", replyMarkup: inlineKeyboard);
+                    }
+                    else
+                    {
+                        await Start(botClient, chatId);
+                    }
+
                 }
             }
 
@@ -548,34 +734,34 @@ class Program
                     {
                         case "telegram":
                             await SendFilteredCategoriesAsync(chatId,
-        $"🌐 **Выберите категорию, которая вас интересует:**\n\n" +
-        "Мы рады предложить вам широкий выбор категорий, каждая из которых содержит множество интересных предложений. Ознакомьтесь с нашим ассортиментом ниже и выберите ту категорию, которая вам наиболее интересна! 👇\n\n" +
-        "Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам.",
-        callbackData, botClient);
+                                $"💬 **Категория: Telegram**\n\n" +
+                                "✨ Мы рады предложить вам широкий выбор предложений в категории Telegram. Ознакомьтесь с нашим ассортиментом ниже и выберите то, что вам наиболее интересно! 👇\n\n" +
+                                "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
+                                callbackData, botClient);
                             break;
 
                         case "vk":
                             await SendFilteredCategoriesAsync(chatId,
-        $"🌐 **Выберите категорию, которая вас интересует:**\n\n" +
-        "Мы рады предложить вам широкий выбор категорий, каждая из которых содержит множество интересных предложений. Ознакомьтесь с нашим ассортиментом ниже и выберите ту категорию, которая вам наиболее интересна! 👇\n\n" +
-        "Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам.",
-        callbackData, botClient);
-                            break;
-                        case "youtube":
-                            await SendFilteredCategoriesAsync(chatId,
-        $"🌐 **Выберите категорию, которая вас интересует:**\n\n" +
-        "Мы рады предложить вам широкий выбор категорий, каждая из которых содержит множество интересных предложений. Ознакомьтесь с нашим ассортиментом ниже и выберите ту категорию, которая вам наиболее интересна! 👇\n\n" +
-        "Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам.",
-        callbackData, botClient);
-                            break;
-                        case "instagram":
-                            await SendFilteredCategoriesAsync(chatId,
-        $"🌐 **Выберите категорию, которая вас интересует:**\n\n" +
-        "Мы рады предложить вам широкий выбор категорий, каждая из которых содержит множество интересных предложений. Ознакомьтесь с нашим ассортиментом ниже и выберите ту категорию, которая вам наиболее интересна! 👇\n\n" +
-        "Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам.",
-        callbackData, botClient);
+                                $"📱 **Категория: VK**\n\n" +
+                                "🎉 Добро пожаловать в категорию VK! Здесь вы найдете множество интересных предложений. Ознакомьтесь с нашим ассортиментом и выберите то, что вам больше всего нравится! 👇\n\n" +
+                                "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
+                                callbackData, botClient);
                             break;
 
+                        case "youtube":
+                            await SendFilteredCategoriesAsync(chatId,
+                                $"📺 **Категория: YouTube**\n\n" +
+                                "🌟 Исследуйте категорию YouTube и найдите множество увлекательных предложений. Просмотрите наш ассортимент и выберите то, что вам по душе! 👇\n\n" +
+                                "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
+                                callbackData, botClient);
+                            break;
+
+                        case "instagram":
+                            await SendFilteredCategoriesAsync(chatId,
+                                $"📸 **Категория: Instagram**\n\n" +
+                                "📷 Добро пожаловать в категорию Instagram! Здесь вы найдете множество интересных предложений. Ознакомьтесь с нашим ассортиментом и выберите то, что вам больше всего нравится! 👇\n\n" +
+                                "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
+                                callbackData, botClient);
                             break;
                         case "main":
                             await Start(botClient, chatId);
