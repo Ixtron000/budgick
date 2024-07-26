@@ -13,24 +13,266 @@ using Telegram.Bot.Types.ReplyMarkups;
 using System.IO;
 using OfficeOpenXml;
 using Telegram.Bot.Exceptions;
+using Telegram.Bot.Types.Enums;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
+using System.Web;
+
+class FreeKassaIntegration
+{
+    private string MerchantId { get; }
+    private string SecretWord { get; }
+    private string SecretWord2 { get; }
+
+    public FreeKassaIntegration(string merchantId, string secretWord, string secretWord2)
+    {
+        MerchantId = merchantId;
+        SecretWord = secretWord;
+        SecretWord2 = secretWord2;
+    }
+
+    public string GeneratePaymentUrl(decimal amount, string orderId, string currency = "RUB")
+    {
+        string sign = GenerateSignature(amount, orderId, currency);
+        string paymentUrl = $"https://www.free-kassa.ru/merchant/cash.php?m={MerchantId}&oa={amount}&o={orderId}&s={sign}&currency={currency}";
+        return paymentUrl;
+    }
+
+    private string GenerateSignature(decimal amount, string orderId, string currency)
+    {
+        string signString = $"{MerchantId}:{amount}:{SecretWord}:{currency}:{orderId}";
+        using (var md5 = MD5.Create())
+        {
+            byte[] signBytes = md5.ComputeHash(Encoding.UTF8.GetBytes(signString));
+            StringBuilder sb = new StringBuilder();
+            foreach (var b in signBytes)
+            {
+                sb.Append(b.ToString("x2"));
+            }
+            return sb.ToString();
+        }
+    }
+
+    public bool VerifySignature(string merchantOrderId, decimal amount, string signature)
+    {
+        string signString = $"{MerchantId}:{amount}:{SecretWord2}:{merchantOrderId}";
+        using (var md5 = MD5.Create())
+        {
+            byte[] signBytes = md5.ComputeHash(Encoding.UTF8.GetBytes(signString));
+            StringBuilder sb = new StringBuilder();
+            foreach (var b in signBytes)
+            {
+                sb.Append(b.ToString("x2"));
+            }
+            return sb.ToString().Equals(signature, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+}
+
 
 class Program
 {
     private static readonly string Token = "7197293618:AAEdjKHiF2mFo5MaM7bHLK9vuumdEsWisgQ";
     private static readonly TelegramBotClient BotClient = new TelegramBotClient(Token);
     private static readonly CancellationTokenSource CancellationToken = new CancellationTokenSource();
-    private static readonly HttpClient HttpClient = new HttpClient(); 
-
+    private static readonly HttpClient HttpClient = new HttpClient();
+    private static readonly string MerchantId = "f9009b140a7e56a63f0f4235d71baed8";
+    private static readonly string SecretWord = "1 pp]nE&7_[Wtwjp%";
+    private static readonly string SecretWord2 = ")]xKZ6X)Y4,4PZ$";
     static async Task Main(string[] args)
     {
         BotClient.StartReceiving(UpdateHandler, ErrorHandler, cancellationToken: CancellationToken.Token);
-
+       
         Console.WriteLine("Бот запущен.");
         Console.ReadLine();
+        var httpListenerTask = StartHttpServer();
+        await httpListenerTask;
 
         CancellationToken.Cancel();
-    }
 
+    }
+    private static async Task StartHttpServer()
+    {
+        HttpListener listener = new HttpListener();
+        listener.Prefixes.Add("http://localhost:8080/"); // Ensure port 8080 is free
+        listener.Start();
+        Console.WriteLine("Listening for payment notifications...");
+
+        while (true)
+        {
+            var context = await listener.GetContextAsync();
+            var request = context.Request;
+            var response = context.Response;
+
+            if (request.HttpMethod == "POST")
+            {
+                using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
+                {
+                    string requestBody = await reader.ReadToEndAsync();
+                    var parameters = HttpUtility.ParseQueryString(requestBody);
+
+                    string merchantOrderId = parameters["MERCHANT_ORDER_ID"];
+                    decimal amount = decimal.Parse(parameters["AMOUNT"]);
+                    string signature = parameters["SIGN"];
+
+                    if (new FreeKassaIntegration(MerchantId, SecretWord, SecretWord2)
+                        .VerifySignature(merchantOrderId, amount, signature))
+                    {
+                        Console.WriteLine($"Payment successful: Order {merchantOrderId}, Amount {amount}");
+
+                        // Update user balance in Excel file
+                        UpdateUserBalance(merchantOrderId, amount);
+
+                        byte[] buffer = Encoding.UTF8.GetBytes("YES");
+                        response.ContentLength64 = buffer.Length;
+                        response.OutputStream.Write(buffer, 0, buffer.Length);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Signature verification failed!");
+                        response.StatusCode = (int)HttpStatusCode.BadRequest;
+                    }
+                }
+            }
+            response.Close();
+        }
+    }
+    private static void UpdateUserBalance(string orderId, decimal amount)
+    {
+        string filePath = "users.xlsx";
+        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+
+        if (!System.IO.File.Exists(filePath))
+        {
+            Console.WriteLine("Excel file not found.");
+            return;
+        }
+
+        using (var package = new ExcelPackage(new FileInfo(filePath)))
+        {
+            var worksheet = package.Workbook.Worksheets["Users"];
+            var rowCount = worksheet.Dimension?.Rows;
+
+            if (rowCount.HasValue)
+            {
+                for (int row = 2; row <= rowCount.Value; row++)
+                {
+                    var cellOrderId = worksheet.Cells[row, 4].Value?.ToString(); // Assume orderId is in column 4
+                    if (cellOrderId == orderId)
+                    {
+                        var currentBalance = worksheet.Cells[row, 3].GetValue<decimal>(); // Balance is in column 3
+                        worksheet.Cells[row, 3].Value = currentBalance + amount;
+                        package.Save();
+                        Console.WriteLine($"Updated balance for order {orderId}: New balance {currentBalance + amount}");
+                        return;
+                    }
+                }
+                Console.WriteLine("Order ID not found in Excel file.");
+            }
+            else
+            {
+                Console.WriteLine("No data in Excel file.");
+            }
+        }
+    }
+    //баланс
+    private static async Task GetUserBalance(long chatId, ITelegramBotClient botClient, string name, long id)
+    {
+        string filePath = "users.xlsx";
+        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+        if (!System.IO.File.Exists(filePath))
+        {
+            Console.WriteLine("File not found.");
+            return;
+        }
+
+        using (var package = new ExcelPackage(new FileInfo(filePath)))
+        {
+            var worksheet = package.Workbook.Worksheets["Users"];
+            var rowCount = worksheet.Dimension?.Rows;
+
+            if (rowCount.HasValue)
+            {
+                bool userFound = false;
+
+                for (int row = 2; row <= rowCount.Value; row++)
+                {
+                    if (worksheet.Cells[row, 1].Value.ToString() == chatId.ToString())
+                    {
+                        var balance = worksheet.Cells[row, 3].Value;
+
+                        // Initialize FreeKassaIntegration
+                        FreeKassaIntegration freeKassa = new FreeKassaIntegration(MerchantId, SecretWord, SecretWord2);
+
+                        // Generate payment URLs
+                        var paymentUrls = new List<string>
+                        {
+                            freeKassa.GeneratePaymentUrl(100.0m, Guid.NewGuid().ToString()),
+                            freeKassa.GeneratePaymentUrl(500.0m, Guid.NewGuid().ToString()),
+                            freeKassa.GeneratePaymentUrl(1000.0m, Guid.NewGuid().ToString())
+                        };
+
+                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                        {
+                            new[]
+                            {
+                                InlineKeyboardButton.WithUrl("Оплатить 100 руб.", paymentUrls[0]),
+                                InlineKeyboardButton.WithUrl("Оплатить 500 руб.", paymentUrls[1])
+                            },
+                            new[]
+                            {
+                                InlineKeyboardButton.WithUrl("Оплатить 1000 руб.", paymentUrls[2]),
+                                InlineKeyboardButton.WithCallbackData("🔙 Главная", "main")
+                            }
+                        });
+
+                        await botClient.SendTextMessageAsync(
+                            chatId,
+                            $"🖐Здравствуйте, {name}! \n Ваш ID:  {id} \n⌛Время (МСК):  {TimeZoneInfo.ConvertTime(DateTime.Now, TimeZoneInfo.FindSystemTimeZoneById("Russian Standard Time"))}. \n💚Ваш баланс: {balance} руб.\n\n 🧡Для пополнения выберите сумму ниже!\n\n Для пополнения на другую сумму напишите /pay сумма",
+                            replyMarkup: inlineKeyboard
+                        );
+                        userFound = true;
+                        break;
+                    }
+                }
+                if (!userFound)
+                {
+                    await botClient.SendTextMessageAsync(chatId, "Произошла ошибка. 😔");
+                }
+            }
+            else
+            {
+                Console.WriteLine("No data in the Excel file.");
+            }
+        }
+    }
+    private static async Task CreateOrder(ITelegramBotClient botClient, long chatId, decimal price)
+    {
+        // Initialize FreeKassaIntegration
+        FreeKassaIntegration freeKassa = new FreeKassaIntegration(MerchantId, SecretWord, SecretWord2);
+
+        // Generate a unique order ID
+        string orderId = Guid.NewGuid().ToString();
+
+        // Create a payment URL
+        string paymentUrl = freeKassa.GeneratePaymentUrl(price, orderId);
+
+        // Send payment URL to user
+        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+        {
+        new[]
+        {
+            InlineKeyboardButton.WithUrl($"Оплатить {price} руб.", paymentUrl)
+        }
+    });
+
+        await botClient.SendTextMessageAsync(
+            chatId,
+            $"Для пополнения вашего баланса на {price} рублей, перейдите по следующей ссылке:",
+            replyMarkup: inlineKeyboard
+        );
+    }
     private static async Task ErrorHandler(ITelegramBotClient client, Exception exception, CancellationToken token)
     {
         Console.WriteLine($"Произошла ошибка: {exception.Message}");
@@ -129,62 +371,8 @@ class Program
             await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при парсинге ответа. 😔");
         }
     }
-    //баланс
-    private static async Task GetUserBalance(long chatId, ITelegramBotClient botClient, string name, long id )
-    {
-        string filePath = "users.xlsx";
-        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-        if (!System.IO.File.Exists(filePath))
-        {
-            Console.WriteLine("Файл не найден.");
-            return;
-        }
+    
 
-        using (var package = new ExcelPackage(new FileInfo(filePath)))
-        {
-            var worksheet = package.Workbook.Worksheets["Users"];
-            var rowCount = worksheet.Dimension?.Rows;
-
-            if (rowCount.HasValue)
-            {
-                bool userFound = false;
-
-                for (int row = 2; row <= rowCount.Value; row++)
-                {
-                    if (worksheet.Cells[row, 1].Value.ToString() == chatId.ToString())
-                    {
-                        var balance = worksheet.Cells[row, 3].Value;
-                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                        {
-                            new[]
-                            {
-                                InlineKeyboardButton.WithUrl("Написать","https://t.me/tekna_one")
-                            },
-                            new[]
-                            {
-                                InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
-                            }
-                        });
-                        await botClient.SendTextMessageAsync(
-                            chatId,
-                            $"🖐Здравствуйте, {name}! \n Ваш ID:  {id} \n⌛Время (МСК):  {TimeZoneInfo.ConvertTime(DateTime.Now, TimeZoneInfo.FindSystemTimeZoneById("Russian Standard Time"))}. \n💚Ваш баланс: {balance} руб.\n\n 🧡Для пополнения напишите нам!",
-                            replyMarkup: inlineKeyboard
-                        );
-                        userFound = true;
-                        break;
-                    }
-                }
-                if (!userFound)
-                {
-                    await botClient.SendTextMessageAsync(chatId, "Произошла ошибка. 😔");
-                }
-            }
-            else
-            {
-                Console.WriteLine("В файле нет данных.");
-            }
-        }
-    }
     //поиск айтемов по категории
     private static async Task SendFilteredItemsAsync(string category, long chatId, ITelegramBotClient botClient)
     {
@@ -454,6 +642,23 @@ class Program
                             }
                         }
                     }
+                    else if (messageText == "/help")
+                    {
+                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                        {
+                            new[]
+                            {
+                                InlineKeyboardButton.WithUrl("Написать","https://t.me/tekna_one")
+                            },
+                            new[]
+                            {
+                                InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
+                            }
+                        });
+                        await botClient.SendTextMessageAsync(chatId, "⚒Столкнулись с роблемой? \n🎇 Тогда нпишите нам!🎇", replyMarkup: inlineKeyboard);
+                    }
+
+
                     else if (messageText.StartsWith("/buy"))
                     {
                         var parts = messageText.Split(' ');
@@ -586,10 +791,7 @@ class Program
                                                             {
                                                                 var inlineKeyboard = new InlineKeyboardMarkup(new[]
                                                                 {
-                                        new[]
-                                        {
-                                            InlineKeyboardButton.WithUrl("Написать","https://t.me/tekna_one")
-                                        },
+                                        
                                         new[]
                                         {
                                             InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
@@ -599,7 +801,7 @@ class Program
                                                                     "\r\n\n" +
                                                                     $"💚Ваш баланс: {balance} ₽\n" +
                                                                     $"💛Требуется к оплате: {formattedAmountToDeduct} ₽\n\n" +
-                                                                    $"💥Для пополнения баланса напишите нам!", replyMarkup: inlineKeyboard);
+                                                                    $"💥Для пополнения баланса напишите /balance!", replyMarkup: inlineKeyboard);
                                                             }
                                                         }
                                                     }
@@ -623,10 +825,6 @@ class Program
                             }
                         }
                     }
-                    else if (messageText == "/balance")
-                    {
-                        await GetUserBalance(chatId, botClient, message.From.FirstName, message.From.Id);
-                    }
                     else if (messageText.StartsWith("/del"))
                     {
                         var parts = messageText.Split(' ');
@@ -639,7 +837,26 @@ class Program
                             await CancelOrder(botClient, parts[1], chatId);
                         }
                     }
+
+                    else if (messageText == "/balance")
+                    {
+                        await GetUserBalance(chatId, botClient, message.From.FirstName, message.From.Id);
+                    }
                     else if (messageText.StartsWith("/pay"))
+                    {
+                        var parts = messageText.Split(' ');
+                        if (parts.Length < 2)
+                        {
+                            await botClient.SendTextMessageAsync(chatId, "Вы не ввели сумму");
+                            return;
+                        }
+                        decimal value = decimal.Parse(parts[1]);
+                        CreateOrder(botClient, chatId, value);
+                    }
+
+
+
+                    else if (messageText.StartsWith("/pay_add"))
                     {
                         if (message.From.Id == 1416004677)
                         {
@@ -697,21 +914,120 @@ class Program
                             }
                         }
                     }
-                    else if (messageText == "/help")
+                    else if (messageText.StartsWith("/info"))
                     {
-                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                        if (message.From.Id == 1416004677)
                         {
-                            new[]
+                            string filePath = "users.xlsx";
+                            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+
+                            if (!System.IO.File.Exists(filePath))
                             {
-                                InlineKeyboardButton.WithUrl("Написать","https://t.me/tekna_one")
-                            },
-                            new[]
-                            {
-                                InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
+                                Console.WriteLine("Файл не найден.");
+                                return;
                             }
-                        });
-                        await botClient.SendTextMessageAsync(chatId, "⚒Столкнулись с роблемой? \n🎇 Тогда нпишите нам!🎇", replyMarkup: inlineKeyboard);
+
+                            var parts = messageText.Split(' ');
+                            if (parts.Length < 2)
+                            {
+                                await botClient.SendTextMessageAsync(chatId, "Вы не ввели ID пользователя!");
+                                return;
+                            }
+
+                            string searchChatId = parts[1];
+
+                            using (var package = new ExcelPackage(new FileInfo(filePath)))
+                            {
+                                var worksheet = package.Workbook.Worksheets["Users"];
+                                var rowCount = worksheet.Dimension?.Rows;
+
+                                if (rowCount.HasValue)
+                                {
+                                    bool userFound = false;
+
+                                    for (int row = 2; row <= rowCount.Value; row++)
+                                    {
+                                        if (worksheet.Cells[row, 1].Value.ToString() == searchChatId)
+                                        {
+                                            // Assuming the columns contain user information like ID, Name, Balance, etc.
+                                            string userInfo = $"ID: {worksheet.Cells[row, 1].Value}\n" +
+                                                              $"Name: {worksheet.Cells[row, 2].Value}\n" +
+                                                              $"Balance: {worksheet.Cells[row, 3].Value}\n" +
+                                                              $"Other Info: {worksheet.Cells[row, 4].Value}"; // Modify according to your columns
+
+                                            await botClient.SendTextMessageAsync(chatId, userInfo);
+                                            userFound = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!userFound)
+                                    {
+                                        await botClient.SendTextMessageAsync(chatId, "Пользователь не найден.");
+                                    }
+                                }
+                                else
+                                {
+                                    Console.WriteLine("В файле нет данных.");
+                                }
+                            }
+                        }
                     }
+                    else if (messageText.StartsWith("/p"))
+                    {
+                        if (message.From.Id == 1416004677)
+                        {
+                            string filePath = "users.xlsx";
+                            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+
+                            if (!System.IO.File.Exists(filePath))
+                            {
+                                Console.WriteLine("Файл не найден.");
+                                return;
+                            }
+
+                            var messageContent = messageText.Substring(2).Trim(); // Получаем все после '/p'
+
+                            if (string.IsNullOrWhiteSpace(messageContent))
+                            {
+                                await botClient.SendTextMessageAsync(chatId, "Вы не ввели сообщение для отправки!");
+                                return;
+                            }
+
+                            using (var package = new ExcelPackage(new FileInfo(filePath)))
+                            {
+                                var worksheet = package.Workbook.Worksheets["Users"];
+                                var rowCount = worksheet.Dimension?.Rows;
+
+                                if (rowCount.HasValue)
+                                {
+                                    for (int row = 2; row <= rowCount.Value; row++)
+                                    {
+                                        var chatIdCell = worksheet.Cells[row, 1].Value?.ToString();
+                                        var isBannedCell = worksheet.Cells[row, 5].Value?.ToString(); // Предполагаем, что статус бана в 5-м столбце
+
+                                        if (chatIdCell != null && isBannedCell != "banned")
+                                        {
+                                            try
+                                            {
+                                                await botClient.SendTextMessageAsync(chatIdCell, messageContent);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                Console.WriteLine($"Ошибка при отправке сообщения пользователю {chatIdCell}: {ex.Message}");
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    Console.WriteLine("В файле нет данных.");
+                                }
+                            }
+                        }
+                    }
+
+
                     else
                     {
                         await Start(botClient, chatId);
@@ -719,7 +1035,6 @@ class Program
 
                 }
             }
-
             if (update.CallbackQuery is { } callbackQuery)
             {
                 var chatId = callbackQuery.Message.Chat.Id;
