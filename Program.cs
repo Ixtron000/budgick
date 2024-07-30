@@ -18,54 +18,110 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Web;
+using Newtonsoft.Json;
+using OfficeOpenXml.ConditionalFormatting.Contracts;
+using MySql.Data.MySqlClient;
 
-class FreeKassaIntegration
+
+class FreeCassa
 {
-    private string MerchantId { get; }
-    private string SecretWord { get; }
-    private string SecretWord2 { get; }
+    private const int ShopId = 53325;
+    private const string ApiKey = "f9009b140a7e56a63f0f4235d71baed8"; // Replace with your actual API key
+    private const string Email = "vitcher20u@gmail.com";
+    private const string IpAddress = "89.111.141.136";
 
-    public FreeKassaIntegration(string merchantId, string secretWord, string secretWord2)
+    public async Task<Dictionary<string, object>> CreateLinkForPayAsync(string userName, double price)
     {
-        MerchantId = merchantId;
-        SecretWord = secretWord;
-        SecretWord2 = secretWord2;
-    }
-
-    public string GeneratePaymentUrl(decimal amount, string orderId, string currency = "RUB")
-    {
-        string sign = GenerateSignature(amount, orderId, currency);
-        string paymentUrl = $"https://www.free-kassa.ru/merchant/cash.php?m={MerchantId}&oa={amount}&o={orderId}&s={sign}&currency={currency}";
-        return paymentUrl;
-    }
-
-    private string GenerateSignature(decimal amount, string orderId, string currency)
-    {
-        string signString = $"{MerchantId}:{amount}:{SecretWord}:{currency}:{orderId}";
-        using (var md5 = MD5.Create())
+        try
         {
-            byte[] signBytes = md5.ComputeHash(Encoding.UTF8.GetBytes(signString));
-            StringBuilder sb = new StringBuilder();
-            foreach (var b in signBytes)
+            var data = new Dictionary<string, object>
             {
-                sb.Append(b.ToString("x2"));
-            }
-            return sb.ToString();
+                { "shopId", ShopId },
+                { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
+                { "i", 8 },
+                { "email", Email },
+                { "ip", IpAddress },
+                { "paymentId", userName },
+                { "amount", price },
+                { "currency", "RUB" },
+            };
+
+            var signature = CreateHmacSha256Signature(data);
+            data["signature"] = signature;
+
+            var request = JsonConvert.SerializeObject(data);
+            var result = await SendRequestAsync("https://api.freekassa.com/v1/orders/create", request);
+            var response = JsonConvert.DeserializeObject<Dictionary<string, object>>(result);
+
+            return response;
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"HTTP Request Exception: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"General Exception: {ex.Message}");
+            return null;
         }
     }
 
-    public bool VerifySignature(string merchantOrderId, decimal amount, string signature)
+    public async Task<Dictionary<string, object>> GetOrderAsync(string orderId)
     {
-        string signString = $"{MerchantId}:{amount}:{SecretWord2}:{merchantOrderId}";
-        using (var md5 = MD5.Create())
+        try
         {
-            byte[] signBytes = md5.ComputeHash(Encoding.UTF8.GetBytes(signString));
-            StringBuilder sb = new StringBuilder();
-            foreach (var b in signBytes)
+            var data = new Dictionary<string, object>
             {
-                sb.Append(b.ToString("x2"));
-            }
-            return sb.ToString().Equals(signature, StringComparison.OrdinalIgnoreCase);
+                { "shopId", ShopId },
+                { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
+                { "orderId", orderId }
+            };
+
+            var signature = CreateHmacSha256Signature(data);
+            data["signature"] = signature;
+
+            var request = JsonConvert.SerializeObject(data);
+            var result = await SendRequestAsync("https://api.freekassa.com/v1/orders", request);
+            var response = JsonConvert.DeserializeObject<Dictionary<string, object>>(result);
+
+            return response;
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"HTTP Request Exception: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"General Exception: {ex.Message}");
+            return null;
+        }
+    }
+
+    private string CreateHmacSha256Signature(Dictionary<string, object> data)
+    {
+        var sortedData = data.OrderBy(d => d.Key).ToDictionary(d => d.Key, d => d.Value);
+        var signData = string.Join("|", sortedData.Values);
+
+        using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(ApiKey)))
+        {
+            var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(signData));
+            return BitConverter.ToString(hash).Replace("-", "").ToLower();
+        }
+    }
+
+    private async Task<string> SendRequestAsync(string url, string json)
+    {
+        using (var client = new HttpClient())
+        {
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            client.DefaultRequestHeaders.Add("Authorization", "Bearer your_token_if_any");
+            var response = await client.PostAsync(url, content);
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync();
+            return System.Text.RegularExpressions.Regex.Unescape(responseContent);
         }
     }
 }
@@ -73,213 +129,180 @@ class FreeKassaIntegration
 
 class Program
 {
+    private static string ConnectionString = "Server=localhost;Database=budguck;User=root;Password=Ixtron2021!;";
     private static readonly string Token = "7197293618:AAEdjKHiF2mFo5MaM7bHLK9vuumdEsWisgQ";
     private static readonly TelegramBotClient BotClient = new TelegramBotClient(Token);
     private static readonly CancellationTokenSource CancellationToken = new CancellationTokenSource();
     private static readonly HttpClient HttpClient = new HttpClient();
-    private static readonly string MerchantId = "f9009b140a7e56a63f0f4235d71baed8";
-    private static readonly string SecretWord = "1 pp]nE&7_[Wtwjp%";
-    private static readonly string SecretWord2 = ")]xKZ6X)Y4,4PZ$";
+   
     static async Task Main(string[] args)
     {
         BotClient.StartReceiving(UpdateHandler, ErrorHandler, cancellationToken: CancellationToken.Token);
        
         Console.WriteLine("Бот запущен.");
         Console.ReadLine();
-        var httpListenerTask = StartHttpServer();
-        await httpListenerTask;
+        
 
         CancellationToken.Cancel();
 
     }
-    private static async Task StartHttpServer()
+
+    private static void UpdateUserBalance(string orderId, decimal amount)
     {
-        HttpListener listener = new HttpListener();
-        listener.Prefixes.Add("http://localhost:8080/"); // Ensure port 8080 is free
-        listener.Start();
-        Console.WriteLine("Listening for payment notifications...");
-
-        while (true)
+        using (var connection = new MySqlConnection("Server=127.0.0.1;Database=test;User=root;Password=;"))
         {
-            var context = await listener.GetContextAsync();
-            var request = context.Request;
-            var response = context.Response;
-
-            if (request.HttpMethod == "POST")
+            connection.Open();
+            string query = "SELECT id, balance FROM users WHERE id = @orderId";
+            using (var command = new MySqlCommand(query, connection))
             {
-                using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
+                command.Parameters.AddWithValue("@orderId", orderId);
+                using (var reader = command.ExecuteReader())
                 {
-                    string requestBody = await reader.ReadToEndAsync();
-                    var parameters = HttpUtility.ParseQueryString(requestBody);
-
-                    string merchantOrderId = parameters["MERCHANT_ORDER_ID"];
-                    decimal amount = decimal.Parse(parameters["AMOUNT"]);
-                    string signature = parameters["SIGN"];
-
-                    if (new FreeKassaIntegration(MerchantId, SecretWord, SecretWord2)
-                        .VerifySignature(merchantOrderId, amount, signature))
+                    if (reader.Read())
                     {
-                        Console.WriteLine($"Payment successful: Order {merchantOrderId}, Amount {amount}");
+                        int userId = reader.GetInt32("id");
+                        decimal currentBalance = reader.GetDecimal("balance");
+                        reader.Close();
 
-                        // Update user balance in Excel file
-                        UpdateUserBalance(merchantOrderId, amount);
+                        decimal newBalance = currentBalance + amount;
+                        query = "UPDATE users SET balance = @balance WHERE id = @userId";
+                        using (var updateCommand = new MySqlCommand(query, connection))
+                        {
+                            updateCommand.Parameters.AddWithValue("@balance", newBalance);
+                            updateCommand.Parameters.AddWithValue("@userId", userId);
+                            updateCommand.ExecuteNonQuery();
+                        }
 
-                        byte[] buffer = Encoding.UTF8.GetBytes("YES");
-                        response.ContentLength64 = buffer.Length;
-                        response.OutputStream.Write(buffer, 0, buffer.Length);
+                        Console.WriteLine($"Updated balance for order {orderId}: New balance {newBalance}");
                     }
                     else
                     {
-                        Console.WriteLine("Signature verification failed!");
-                        response.StatusCode = (int)HttpStatusCode.BadRequest;
+                        Console.WriteLine("Order ID not found in database.");
                     }
                 }
             }
-            response.Close();
         }
     }
-    private static void UpdateUserBalance(string orderId, decimal amount)
-    {
-        string filePath = "users.xlsx";
-        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
-        if (!System.IO.File.Exists(filePath))
-        {
-            Console.WriteLine("Excel file not found.");
-            return;
-        }
-
-        using (var package = new ExcelPackage(new FileInfo(filePath)))
-        {
-            var worksheet = package.Workbook.Worksheets["Users"];
-            var rowCount = worksheet.Dimension?.Rows;
-
-            if (rowCount.HasValue)
-            {
-                for (int row = 2; row <= rowCount.Value; row++)
-                {
-                    var cellOrderId = worksheet.Cells[row, 4].Value?.ToString(); // Assume orderId is in column 4
-                    if (cellOrderId == orderId)
-                    {
-                        var currentBalance = worksheet.Cells[row, 3].GetValue<decimal>(); // Balance is in column 3
-                        worksheet.Cells[row, 3].Value = currentBalance + amount;
-                        package.Save();
-                        Console.WriteLine($"Updated balance for order {orderId}: New balance {currentBalance + amount}");
-                        return;
-                    }
-                }
-                Console.WriteLine("Order ID not found in Excel file.");
-            }
-            else
-            {
-                Console.WriteLine("No data in Excel file.");
-            }
-        }
-    }
     //баланс
     private static async Task GetUserBalance(long chatId, ITelegramBotClient botClient, string name, long id)
     {
-        string filePath = "users.xlsx";
-        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-        if (!System.IO.File.Exists(filePath))
+        using (var connection = new MySqlConnection(ConnectionString))
         {
-            Console.WriteLine("File not found.");
-            return;
-        }
-
-        using (var package = new ExcelPackage(new FileInfo(filePath)))
-        {
-            var worksheet = package.Workbook.Worksheets["Users"];
-            var rowCount = worksheet.Dimension?.Rows;
-
-            if (rowCount.HasValue)
+            connection.Open();
+            string query = "SELECT balance FROM users WHERE chat_id = @chatId";
+            using (var command = new MySqlCommand(query, connection))
             {
-                bool userFound = false;
-
-                for (int row = 2; row <= rowCount.Value; row++)
+                command.Parameters.AddWithValue("@chatId", chatId);
+                using (var reader = command.ExecuteReader())
                 {
-                    if (worksheet.Cells[row, 1].Value.ToString() == chatId.ToString())
+                    if (reader.Read())
                     {
-                        var balance = worksheet.Cells[row, 3].Value;
+                        decimal balance = reader.GetDecimal("balance");
+                        var freeCassa = new FreeCassa();
+                        var response = await freeCassa.CreateLinkForPayAsync(id.ToString(), 500);
 
-                        // Initialize FreeKassaIntegration
-                        FreeKassaIntegration freeKassa = new FreeKassaIntegration(MerchantId, SecretWord, SecretWord2);
-
-                        // Generate payment URLs
-                        var paymentUrls = new List<string>
+                        if (response != null && response.ContainsKey("location"))
                         {
-                            freeKassa.GeneratePaymentUrl(100.0m, Guid.NewGuid().ToString()),
-                            freeKassa.GeneratePaymentUrl(500.0m, Guid.NewGuid().ToString()),
-                            freeKassa.GeneratePaymentUrl(1000.0m, Guid.NewGuid().ToString())
-                        };
+                            string pay_500 = response["location"].ToString();
+                            var response_1000 = await freeCassa.CreateLinkForPayAsync(id.ToString(), 1000);
 
-                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                        {
-                            new[]
+                            if (response_1000 != null && response_1000.ContainsKey("location"))
                             {
-                                InlineKeyboardButton.WithUrl("Оплатить 100 руб.", paymentUrls[0]),
-                                InlineKeyboardButton.WithUrl("Оплатить 500 руб.", paymentUrls[1])
-                            },
-                            new[]
-                            {
-                                InlineKeyboardButton.WithUrl("Оплатить 1000 руб.", paymentUrls[2]),
-                                InlineKeyboardButton.WithCallbackData("🔙 Главная", "main")
+                                string pay_1000 = response_1000["location"].ToString();
+                                
+                                    
+                                    var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                                    {
+                                    new[]
+                                    {
+                                        InlineKeyboardButton.WithUrl("Оплатить 500 руб.", pay_500),
+                                        InlineKeyboardButton.WithUrl("Оплатить 1000 руб.", pay_1000)
+                                    },
+                                    new[]
+                                    {
+                                        
+                                        InlineKeyboardButton.WithCallbackData("🔙 Главная", "main")
+                                    }
+                                });
+                                    await botClient.SendTextMessageAsync(
+                                        chatId,
+                                        $"🖐Здравствуйте, {name}! \n Ваш ID:  {id} \n⌛Время (МСК):  {TimeZoneInfo.ConvertTime(DateTime.Now, TimeZoneInfo.FindSystemTimeZoneById("Russian Standard Time"))}. \n💚Ваш баланс: {balance} руб.\n\n 🧡Для пополнения выберите сумму ниже!\n\n Для пополнения на другую сумму напишите /pay сумма",
+                                        replyMarkup: inlineKeyboard
+                                    );
+                                
                             }
-                        });
-
-                        await botClient.SendTextMessageAsync(
-                            chatId,
-                            $"🖐Здравствуйте, {name}! \n Ваш ID:  {id} \n⌛Время (МСК):  {TimeZoneInfo.ConvertTime(DateTime.Now, TimeZoneInfo.FindSystemTimeZoneById("Russian Standard Time"))}. \n💚Ваш баланс: {balance} руб.\n\n 🧡Для пополнения выберите сумму ниже!\n\n Для пополнения на другую сумму напишите /pay сумма",
-                            replyMarkup: inlineKeyboard
-                        );
-                        userFound = true;
-                        break;
+                            else
+                            {
+                                // Log or handle the case where response_1000 is null or doesn't contain "location"
+                                await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при создании ссылки для оплаты 1000 руб.");
+                            }
+                        }
+                        else
+                        {
+                            // Log or handle the case where response is null or doesn't contain "location"
+                            await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при создании ссылки для оплаты 500 руб.");
+                        }
+                    }
+                    else
+                    {
+                        await botClient.SendTextMessageAsync(chatId, "Произошла ошибка. 😔");
                     }
                 }
-                if (!userFound)
-                {
-                    await botClient.SendTextMessageAsync(chatId, "Произошла ошибка. 😔");
-                }
-            }
-            else
-            {
-                Console.WriteLine("No data in the Excel file.");
             }
         }
     }
+
     private static async Task CreateOrder(ITelegramBotClient botClient, long chatId, decimal price)
     {
-        // Initialize FreeKassaIntegration
-        FreeKassaIntegration freeKassa = new FreeKassaIntegration(MerchantId, SecretWord, SecretWord2);
-
-        // Generate a unique order ID
-        string orderId = Guid.NewGuid().ToString();
-
-        // Create a payment URL
-        string paymentUrl = freeKassa.GeneratePaymentUrl(price, orderId);
-
-        // Send payment URL to user
-        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+        try
         {
-        new[]
-        {
-            InlineKeyboardButton.WithUrl($"Оплатить {price} руб.", paymentUrl)
-        }
-    });
+            if (price < 500) { await botClient.SendTextMessageAsync(chatId, "💥 Внимание сумма платежа не может быть меньше, чем 500 рублей!"); }
+            else
+            {
+                var freeCassa = new FreeCassa();
+                var response = await freeCassa.CreateLinkForPayAsync(chatId.ToString(), (double)price);
+                var orderId = response["orderId"].ToString();
+                var orderResponse = await freeCassa.GetOrderAsync(orderId);
+                if (orderResponse != null && orderResponse.ContainsKey("orders"))
+                {
+                    var orders = JsonConvert.SerializeObject(orderResponse["orders"]);
+                    var ordersArray = JArray.Parse(orderResponse["orders"].ToString());
+                    foreach (var order in ordersArray)
+                    {
+                        var status = "";
+                        if ((int)order["status"] == 0) { status = "Новый"; } else if ((int)order["status"] == 1) { status = "Оплачен"; } else if ((int)order["status"] == 8) { status = "Ошибка"; } else if ((int)order["status"] == 9) { status = "Отмена"; }
+                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                        {
+                        new[]
+                        {
+                            InlineKeyboardButton.WithUrl($"Оплатить {price} руб.", response["location"].ToString())
+                        },
+                        new[]
+                        {
+                            InlineKeyboardButton.WithCallbackData("✨ Проверить ✨", "check " + order["fk_order_id"])
+                        }
+                    });
+                        await botClient.SendTextMessageAsync(
+                            chatId,
+                            $"✅Для пополнения вашего баланса на {price} рублей, перейдите по следующей ссылке.\n\n 🔴Информация о платеже №{order["fk_order_id"]}\r\n  💰Сумма: {order["amount"]} \n  ⏳Дата: {order["date"]} \n  🔵Статус платежа: {status}\n\n 🔴После опалты нажмите кнопку провертить!",
+                            replyMarkup: inlineKeyboard
+                        );
+                        Console.WriteLine($"Order ID: {order["fk_order_id"]}, Status: {order["status"]}");
+                    }
+                }
 
-        await botClient.SendTextMessageAsync(
-            chatId,
-            $"Для пополнения вашего баланса на {price} рублей, перейдите по следующей ссылке:",
-            replyMarkup: inlineKeyboard
-        );
+            }
+        }catch { }
     }
     private static async Task ErrorHandler(ITelegramBotClient client, Exception exception, CancellationToken token)
     {
         Console.WriteLine($"Произошла ошибка: {exception.Message}");
     }
     // /start
-    private static async Task Start(ITelegramBotClient botClient, long chatId)
+    private static async Task Start(ITelegramBotClient botClient, long chatId, string name)
     {
+        // Приветственное сообщение
         string welcomeMessage = "Здравствуйте! 🎉\n\n" +
             "Рады приветствовать вас в нашем сервисе. Мы здесь, чтобы помочь вам масштабировать ваш бизнес и добиться успешного продвижения в социальных сетях. 🚀\n\n" +
             "Наш бот предоставляет мощные инструменты для увеличения вашего онлайн-присутствия и повышения эффективности ваших рекламных кампаний. Мы уверены, что вы сможете достичь отличных результатов, используя наши функции. 💪\n\n" +
@@ -288,35 +311,66 @@ class Program
 
         var inlineKeyboard = new InlineKeyboardMarkup(new[]
         {
-            new[]
+        new[]
+        {
+            InlineKeyboardButton.WithCallbackData("Telegram 📱", "telegram"),
+            InlineKeyboardButton.WithCallbackData("VK 🔵", "vk")
+        },
+        new[]
+        {
+            InlineKeyboardButton.WithCallbackData("TikTok 🎵", "tiktok"),
+            InlineKeyboardButton.WithCallbackData("YouTube ▶️", "youtube")
+        },
+        new[]
+        {
+            InlineKeyboardButton.WithCallbackData("Instagram 📸", "instagram"),
+            InlineKeyboardButton.WithCallbackData("Rutube 🔷", "rutube")
+        },
+        new[]
+        {
+            InlineKeyboardButton.WithCallbackData("Дзен 💚", "dzen"),
+            InlineKeyboardButton.WithCallbackData("shedevrum ✨", "shedevrum")
+        },
+        new[]
+        {
+            InlineKeyboardButton.WithCallbackData("Музыка 📣", "music"),
+        }
+    });
+
+        // Сохранение информации о пользователе в базу данных
+        using (var connection = new MySqlConnection(ConnectionString))
+        {
+            await connection.OpenAsync();
+
+            // Check if user exists
+            string checkUserQuery = "SELECT COUNT(*) FROM users WHERE chat_id = @chatId";
+            using (var checkUserCommand = new MySqlCommand(checkUserQuery, connection))
             {
-                InlineKeyboardButton.WithCallbackData("Telegram 📱", "telegram"),
-                InlineKeyboardButton.WithCallbackData("VK 🔵", "vk")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("TikTok 🎵", "tiktok"),
-                InlineKeyboardButton.WithCallbackData("YouTube ▶️", "youtube")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Instagram 📸", "instagram"),
-                InlineKeyboardButton.WithCallbackData("Rutube 🔷", "rutube")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Дзен 💚", "dzen"),
-                InlineKeyboardButton.WithCallbackData("shedevrum ✨", "shedevrum")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Музыка 📣", "music"),
+                checkUserCommand.Parameters.AddWithValue("@chatId", chatId);
+
+                var userExists = Convert.ToInt32(await checkUserCommand.ExecuteScalarAsync()) > 0;
+
+                if (!userExists)
+                {
+                    // Insert new user if they don't exist
+                    string insertQuery = "INSERT INTO users (chat_id, name, balance) VALUES (@chatId, @name, @balance)";
+                    using (var insertCommand = new MySqlCommand(insertQuery, connection))
+                    {
+                        insertCommand.Parameters.AddWithValue("@chatId", chatId);
+                        insertCommand.Parameters.AddWithValue("@name", name);  // Specify the correct user name
+                        insertCommand.Parameters.AddWithValue("@balance", 0);  // Initial balance
+
+                        await insertCommand.ExecuteNonQueryAsync();
+                    }
+                }
             }
-        });
+        }
 
 
+        // Отправка приветственного сообщения
         await botClient.SendTextMessageAsync(chatId, welcomeMessage, replyMarkup: inlineKeyboard);
     }
+
     // полувение под категорий
     private static async Task SendFilteredCategoriesAsync(long chatId, string messageText, string keyword, ITelegramBotClient botClient)
     {
@@ -530,52 +584,32 @@ class Program
                     var chatId = message.Chat.Id;
                     if (messageText.StartsWith("/start", StringComparison.OrdinalIgnoreCase))
                     {
-                        string filePath = "users.xlsx";
-                        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-                        if (!System.IO.File.Exists(filePath))
+                        using (var connection = new MySqlConnection(ConnectionString))
                         {
-                            using (var package = new ExcelPackage())
+                            await connection.OpenAsync();
+
+                            bool userExists = false;
+
+                            using (var command = new MySqlCommand("SELECT COUNT(*) FROM users WHERE chat_id = @chatId", connection))
                             {
-                                var worksheet = package.Workbook.Worksheets.Add("Users");
-                                worksheet.Cells[1, 1].Value = "ChatID";
-                                worksheet.Cells[1, 2].Value = "Username";
-                                worksheet.Cells[1, 3].Value = "Balance";
-                                package.SaveAs(new FileInfo(filePath));
-                            }
-                        }
-
-                        bool userExists = false;
-
-                        using (var package = new ExcelPackage(new FileInfo(filePath)))
-                        {
-                            var worksheet = package.Workbook.Worksheets["Users"];
-                            var rowCount = worksheet.Dimension?.Rows;
-
-                            if (rowCount.HasValue)
-                            {
-                                for (int row = 2; row <= rowCount.Value; row++)
-                                {
-                                    if (worksheet.Cells[row, 1].Value.ToString() == chatId.ToString())
-                                    {
-                                        userExists = true;
-                                        break;
-                                    }
-                                }
+                                command.Parameters.AddWithValue("@chatId", chatId);
+                                userExists = Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
                             }
 
                             if (!userExists)
                             {
-                                var newRow = rowCount.HasValue ? rowCount.Value + 1 : 2;
-                                worksheet.Cells[newRow, 1].Value = chatId;
-                                worksheet.Cells[newRow, 2].Value = message.From.Username;
-                                worksheet.Cells[newRow, 3].Value = 0;
-                                package.Save();
+                                using (var command = new MySqlCommand("INSERT INTO users (chat_id, name, balance) VALUES (@chatId, @username, 0)", connection))
+                                {
+                                    command.Parameters.AddWithValue("@chatId", chatId);
+                                    command.Parameters.AddWithValue("@username", message.From.Username);
+                                    await command.ExecuteNonQueryAsync();
+                                }
                             }
-                        }
 
-                        Console.WriteLine($"User with ChatID {chatId} and Username {message.From.Username} processed.");
-                        await Start(botClient, chatId);
-                        return;
+                            Console.WriteLine($"User with ChatID {chatId} and Username {message.From.Username} processed.");
+                            await Start(botClient, chatId, message.From.Username);
+                            return;
+                        }
                     }
                     else if (messageText.StartsWith("/status"))
                     {
@@ -657,8 +691,6 @@ class Program
                         });
                         await botClient.SendTextMessageAsync(chatId, "⚒Столкнулись с роблемой? \n🎇 Тогда нпишите нам!🎇", replyMarkup: inlineKeyboard);
                     }
-
-
                     else if (messageText.StartsWith("/buy"))
                     {
                         var parts = messageText.Split(' ');
@@ -697,123 +729,105 @@ class Program
                                         decimal price = rate * 2;
                                         Console.WriteLine($"Rate: {rate}, Price: {price}");
 
-                                        string filePath = "users.xlsx";
-                                        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-
-                                        if (!System.IO.File.Exists(filePath))
+                                        using (var connection = new MySqlConnection("Server=127.0.0.1;Database=budguck;User=root;Password=;"))
                                         {
-                                            Console.WriteLine("Файл не найден.");
-                                            return;
-                                        }
+                                            await connection.OpenAsync();
 
-                                        using (var package = new ExcelPackage(new FileInfo(filePath)))
-                                        {
-                                            var worksheet = package.Workbook.Worksheets["Users"];
-                                            var rowCount = worksheet.Dimension?.Rows;
-
-                                            if (rowCount.HasValue)
+                                            string query = "SELECT balance FROM users WHERE chat_id = @chatId";
+                                            using (var command = new MySqlCommand(query, connection))
                                             {
-                                                bool userFound = false;
+                                                command.Parameters.AddWithValue("@chatId", chatId);
 
-                                                for (int row = 2; row <= rowCount.Value; row++)
+                                                var balanceObj = await command.ExecuteScalarAsync();
+                                                if (balanceObj != null && decimal.TryParse(balanceObj.ToString(), out decimal balance))
                                                 {
-                                                    if (worksheet.Cells[row, 1].Value.ToString() == chatId.ToString())
+                                                    if (int.TryParse(parts[2], out int partsValue))
                                                     {
-                                                        var balanceValue = worksheet.Cells[row, 3].Value;
-                                                        if (balanceValue == null || !decimal.TryParse(balanceValue.ToString(), out decimal balance))
+                                                        decimal amountToDeduct = (price / 1000m) * partsValue;
+                                                        string formattedAmountToDeduct = amountToDeduct.ToString("0.0");
+                                                        Console.WriteLine($"Balance: {balance}, Amount to Deduct: {amountToDeduct}");
+                                                        if (balance >= amountToDeduct)
                                                         {
-                                                            await botClient.SendTextMessageAsync(chatId, "Ошибка при чтении баланса пользователя.");
-                                                            return;
-                                                        }
-                                                        if (int.TryParse(parts[2], out int partsValue))
-                                                        {
-                                                            decimal amountToDeduct = (price / 1000m) * partsValue;
-                                                            string formattedAmountToDeduct = amountToDeduct.ToString("0.0");
-                                                            Console.WriteLine($"Balance: {balance}, Amount to Deduct: {amountToDeduct}");
-                                                            if (balance >= amountToDeduct)
+                                                            // Выполнение заказа
+                                                            string responseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=add&service={parts[1]}&link={parts[3]}&quantity={parts[2]}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
+                                                            JObject jsonResponse = JObject.Parse(responseBody);
+                                                            if (jsonResponse.ContainsKey("order"))
                                                             {
-                                                                // Выполнение заказа
-                                                                string responseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=add&service={parts[1]}&link={parts[3]}&quantity={parts[2]}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
-                                                                JObject jsonResponse = JObject.Parse(responseBody);
-                                                                if (jsonResponse.ContainsKey("order"))
+                                                                var orderId = jsonResponse["order"].ToString();
+                                                                var inlineKeyboard = new InlineKeyboardMarkup(new[]
                                                                 {
-                                                                    var orderId = jsonResponse["order"].ToString();
-                                                                    var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                                                                    {
-                                            new[]
-                                            {
-                                                InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
-                                            }
-                                        });
+                                                        new[]
+                                                        {
+                                                            InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
+                                                        }
+                                                    });
 
-                                                                    string statusResponseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=status&orders={orderId}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
-                                                                    JObject statusResponse = JObject.Parse(statusResponseBody);
+                                                                string statusResponseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=status&orders={orderId}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
+                                                                JObject statusResponse = JObject.Parse(statusResponseBody);
 
-                                                                    if (statusResponse.ContainsKey(orderId))
-                                                                    {
-                                                                        var orderInfo = statusResponse[orderId];
-                                                                        decimal charge = orderInfo["charge"].Value<decimal>();
-                                                                        string statusMessage = $"🚀✨ Заказ №{orderId} успешно создан! 🎉🥳" +
-                                                                            $"\n" +
-                                                                            $"📝  Информация о заказе {orderId}:\n\n" +
-                                                                            $"🔴 Стоимость: {charge * 2} {orderInfo["currency"]}\n" +
-                                                                            $"🔹 ID: {orderInfo["service"]}\n" +
-                                                                            $"🌐 Ссылка: {orderInfo["link"]}\n" +
-                                                                            $"📦 Количество: {orderInfo["quantity"]}\n" +
-                                                                            $"📊 Начальное количество: {orderInfo["start_count"]}\n" +
-                                                                            $"📅 Дата: {orderInfo["date"]}\n" +
-                                                                            $"✅ Статус: {orderInfo["status"]}\n" +
-                                                                            $"📦 Остаток: {orderInfo["remains"]}\n\n 💚 Для получения информации о заказе: \n/status {orderId}";
+                                                                if (statusResponse.ContainsKey(orderId))
+                                                                {
+                                                                    var orderInfo = statusResponse[orderId];
+                                                                    decimal charge = orderInfo["charge"].Value<decimal>();
+                                                                    string statusMessage = $"🚀✨ Заказ №{orderId} успешно создан! 🎉🥳" +
+                                                                        $"\n" +
+                                                                        $"📝  Информация о заказе {orderId}:\n\n" +
+                                                                        $"🔴 Стоимость: {charge * 2} {orderInfo["currency"]}\n" +
+                                                                        $"🔹 ID: {orderInfo["service"]}\n" +
+                                                                        $"🌐 Ссылка: {orderInfo["link"]}\n" +
+                                                                        $"📦 Количество: {orderInfo["quantity"]}\n" +
+                                                                        $"📊 Начальное количество: {orderInfo["start_count"]}\n" +
+                                                                        $"📅 Дата: {orderInfo["date"]}\n" +
+                                                                        $"✅ Статус: {orderInfo["status"]}\n" +
+                                                                        $"📦 Остаток: {orderInfo["remains"]}\n\n 💚 Для получения информации о заказе: \n/status {orderId}";
 
-                                                                        await botClient.SendTextMessageAsync(chatId, statusMessage, replyMarkup: inlineKeyboard);
-                                                                        worksheet.Cells[row, 3].Value = balance - amountToDeduct;
-                                                                        package.Save();
-                                                                    }
-                                                                    else if (statusResponse.ContainsKey("error"))
+                                                                    await botClient.SendTextMessageAsync(chatId, statusMessage, replyMarkup: inlineKeyboard);
+
+                                                                    // Update user balance
+                                                                    string updateQuery = "UPDATE users SET balance = @newBalance WHERE user_id = @chatId";
+                                                                    using (var updateCommand = new MySqlCommand(updateQuery, connection))
                                                                     {
-                                                                        string errorMessage = $"Ошибка при получении статуса заказа {orderId}: {statusResponse["error"]}";
-                                                                        await botClient.SendTextMessageAsync(chatId, errorMessage);
+                                                                        updateCommand.Parameters.AddWithValue("@newBalance", balance - amountToDeduct);
+                                                                        updateCommand.Parameters.AddWithValue("@chatId", chatId);
+                                                                        await updateCommand.ExecuteNonQueryAsync();
                                                                     }
                                                                 }
-                                                                else if (jsonResponse.ContainsKey("error"))
+                                                                else if (statusResponse.ContainsKey("error"))
                                                                 {
-                                                                    await botClient.SendTextMessageAsync(chatId, $"Ошибка: {jsonResponse["error"]}");
+                                                                    string errorMessage = $"Ошибка при получении статуса заказа {orderId}: {statusResponse["error"]}";
+                                                                    await botClient.SendTextMessageAsync(chatId, errorMessage);
                                                                 }
-                                                                else
-                                                                {
-                                                                    Console.WriteLine("Неизвестный ответ от сервера");
-                                                                }
-
-                                                                userFound = true;
-                                                                break;
+                                                            }
+                                                            else if (jsonResponse.ContainsKey("error"))
+                                                            {
+                                                                await botClient.SendTextMessageAsync(chatId, $"Ошибка: {jsonResponse["error"]}");
                                                             }
                                                             else
                                                             {
-                                                                var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                                                                {
-                                        
-                                        new[]
-                                        {
-                                            InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
-                                        }
-                                    });
-                                                                await botClient.SendTextMessageAsync(chatId, $"❌ У вас не хватает средств на балансе! ❌" +
-                                                                    "\r\n\n" +
-                                                                    $"💚Ваш баланс: {balance} ₽\n" +
-                                                                    $"💛Требуется к оплате: {formattedAmountToDeduct} ₽\n\n" +
-                                                                    $"💥Для пополнения баланса напишите /balance!", replyMarkup: inlineKeyboard);
+                                                                Console.WriteLine("Неизвестный ответ от сервера");
                                                             }
+                                                        }
+                                                        else
+                                                        {
+                                                            var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                                                            {
+                                                    new[]
+                                                    {
+                                                        InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
+                                                    }
+                                                });
+                                                            await botClient.SendTextMessageAsync(chatId, $"❌ У вас не хватает средств на балансе! ❌" +
+                                                                "\r\n\n" +
+                                                                $"💚Ваш баланс: {balance} ₽\n" +
+                                                                $"💛Требуется к оплате: {formattedAmountToDeduct} ₽\n\n" +
+                                                                $"💥Для пополнения баланса напишите /balance!", replyMarkup: inlineKeyboard);
                                                         }
                                                     }
                                                 }
-                                                if (!userFound)
+                                                else
                                                 {
                                                     await botClient.SendTextMessageAsync(chatId, "Произошла ошибка. 😔");
                                                 }
-                                            }
-                                            else
-                                            {
-                                                Console.WriteLine("В файле нет данных.");
                                             }
                                         }
                                     }
@@ -837,7 +851,6 @@ class Program
                             await CancelOrder(botClient, parts[1], chatId);
                         }
                     }
-
                     else if (messageText == "/balance")
                     {
                         await GetUserBalance(chatId, botClient, message.From.FirstName, message.From.Id);
@@ -853,22 +866,10 @@ class Program
                         decimal value = decimal.Parse(parts[1]);
                         CreateOrder(botClient, chatId, value);
                     }
-
-
-
-                    else if (messageText.StartsWith("/pay_add"))
+                    else if (messageText.StartsWith("/pacy_add"))
                     {
                         if (message.From.Id == 1416004677)
                         {
-                            string filePath = "users.xlsx";
-                            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-
-                            if (!System.IO.File.Exists(filePath))
-                            {
-                                Console.WriteLine("Файл не найден.");
-                                return;
-                            }
-
                             var parts = messageText.Split(' ');
                             if (parts.Length < 3)
                             {
@@ -879,37 +880,26 @@ class Program
                             string searchChatId = parts[1];
                             string newData = parts[2];
 
-                            using (var package = new ExcelPackage(new FileInfo(filePath)))
+                            using (var connection = new MySqlConnection(ConnectionString))
                             {
-                                var worksheet = package.Workbook.Worksheets["Users"];
-                                var rowCount = worksheet.Dimension?.Rows;
+                                await connection.OpenAsync();
 
-                                if (rowCount.HasValue)
+                                string updateQuery = "UPDATE users SET balance = @newData WHERE chat_id = @chatId";
+                                using (var command = new MySqlCommand(updateQuery, connection))
                                 {
-                                    bool userFound = false;
+                                    command.Parameters.AddWithValue("@newData", newData);
+                                    command.Parameters.AddWithValue("@chatId", searchChatId);
 
-                                    for (int row = 2; row <= rowCount.Value; row++)
+                                    int rowsAffected = await command.ExecuteNonQueryAsync();
+                                    if (rowsAffected > 0)
                                     {
-                                        if (worksheet.Cells[row, 1].Value.ToString() == searchChatId)
-                                        {
-                                            // Assuming the column to update is column 3 (you can change this to the correct column index)
-                                            worksheet.Cells[row, 3].Value = newData;
-                                            package.Save();
-
-                                            string message1 = $"ID: {searchChatId}\nНовый баланс: {newData}";
-                                            await botClient.SendTextMessageAsync(chatId, message1);
-                                            userFound = true;
-                                            break;
-                                        }
+                                        string message1 = $"ID: {searchChatId}\nНовый баланс: {newData}";
+                                        await botClient.SendTextMessageAsync(chatId, message1);
                                     }
-                                    if (!userFound)
+                                    else
                                     {
                                         await botClient.SendTextMessageAsync(chatId, "Пользователь не найден.");
                                     }
-                                }
-                                else
-                                {
-                                    Console.WriteLine("В файле нет данных.");
                                 }
                             }
                         }
@@ -918,15 +908,6 @@ class Program
                     {
                         if (message.From.Id == 1416004677)
                         {
-                            string filePath = "users.xlsx";
-                            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-
-                            if (!System.IO.File.Exists(filePath))
-                            {
-                                Console.WriteLine("Файл не найден.");
-                                return;
-                            }
-
                             var parts = messageText.Split(' ');
                             if (parts.Length < 2)
                             {
@@ -936,39 +917,31 @@ class Program
 
                             string searchChatId = parts[1];
 
-                            using (var package = new ExcelPackage(new FileInfo(filePath)))
+                            using (var connection = new MySqlConnection(ConnectionString))
                             {
-                                var worksheet = package.Workbook.Worksheets["Users"];
-                                var rowCount = worksheet.Dimension?.Rows;
+                                await connection.OpenAsync();
 
-                                if (rowCount.HasValue)
+                                string query = "SELECT * FROM users WHERE chat_id = @chatId";
+                                using (var command = new MySqlCommand(query, connection))
                                 {
-                                    bool userFound = false;
+                                    command.Parameters.AddWithValue("@chatId", searchChatId);
 
-                                    for (int row = 2; row <= rowCount.Value; row++)
+                                    using (var reader = await command.ExecuteReaderAsync())
                                     {
-                                        if (worksheet.Cells[row, 1].Value.ToString() == searchChatId)
+                                        if (await reader.ReadAsync())
                                         {
-                                            // Assuming the columns contain user information like ID, Name, Balance, etc.
-                                            string userInfo = $"ID: {worksheet.Cells[row, 1].Value}\n" +
-                                                              $"Name: {worksheet.Cells[row, 2].Value}\n" +
-                                                              $"Balance: {worksheet.Cells[row, 3].Value}\n" +
-                                                              $"Other Info: {worksheet.Cells[row, 4].Value}"; // Modify according to your columns
+                                            string userInfo = $"ID: {reader["chat_id"]}\n" +
+                                                              $"Name: {reader["name"]}\n" +
+                                                              $"Balance: {reader["balance"]}\n" 
+                                                              ;
 
                                             await botClient.SendTextMessageAsync(chatId, userInfo);
-                                            userFound = true;
-                                            break;
+                                        }
+                                        else
+                                        {
+                                            await botClient.SendTextMessageAsync(chatId, "Пользователь не найден.");
                                         }
                                     }
-
-                                    if (!userFound)
-                                    {
-                                        await botClient.SendTextMessageAsync(chatId, "Пользователь не найден.");
-                                    }
-                                }
-                                else
-                                {
-                                    Console.WriteLine("В файле нет данных.");
                                 }
                             }
                         }
@@ -977,15 +950,6 @@ class Program
                     {
                         if (message.From.Id == 1416004677)
                         {
-                            string filePath = "users.xlsx";
-                            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-
-                            if (!System.IO.File.Exists(filePath))
-                            {
-                                Console.WriteLine("Файл не найден.");
-                                return;
-                            }
-
                             var messageContent = messageText.Substring(2).Trim(); // Получаем все после '/p'
 
                             if (string.IsNullOrWhiteSpace(messageContent))
@@ -994,45 +958,36 @@ class Program
                                 return;
                             }
 
-                            using (var package = new ExcelPackage(new FileInfo(filePath)))
+                            using (var connection = new MySqlConnection(ConnectionString))
                             {
-                                var worksheet = package.Workbook.Worksheets["Users"];
-                                var rowCount = worksheet.Dimension?.Rows;
+                                await connection.OpenAsync();
 
-                                if (rowCount.HasValue)
+                                string query = "SELECT chat_id FROM users";
+                                using (var command = new MySqlCommand(query, connection))
                                 {
-                                    for (int row = 2; row <= rowCount.Value; row++)
+                                    using (var reader = await command.ExecuteReaderAsync())
                                     {
-                                        var chatIdCell = worksheet.Cells[row, 1].Value?.ToString();
-                                        var isBannedCell = worksheet.Cells[row, 5].Value?.ToString(); // Предполагаем, что статус бана в 5-м столбце
-
-                                        if (chatIdCell != null && isBannedCell != "banned")
+                                        while (await reader.ReadAsync())
                                         {
+                                            var recipientChatId = reader["chat_id"].ToString();
                                             try
                                             {
-                                                await botClient.SendTextMessageAsync(chatIdCell, messageContent);
+                                                await botClient.SendTextMessageAsync(recipientChatId, messageContent);
                                             }
                                             catch (Exception ex)
                                             {
-                                                Console.WriteLine($"Ошибка при отправке сообщения пользователю {chatIdCell}: {ex.Message}");
+                                                Console.WriteLine($"Ошибка при отправке сообщения пользователю {recipientChatId}: {ex.Message}");
                                             }
                                         }
                                     }
                                 }
-                                else
-                                {
-                                    Console.WriteLine("В файле нет данных.");
-                                }
                             }
                         }
                     }
-
-
                     else
                     {
-                        await Start(botClient, chatId);
+                        await Start(botClient, chatId, message.From.Username);
                     }
-
                 }
             }
             if (update.CallbackQuery is { } callbackQuery)
@@ -1054,7 +1009,7 @@ class Program
                                 "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
                                 callbackData, botClient);
                             break;
-
+                        
                         case "vk":
                             await SendFilteredCategoriesAsync(chatId,
                                 $"📱 **Категория: VK**\n\n" +
@@ -1079,7 +1034,7 @@ class Program
                                 callbackData, botClient);
                             break;
                         case "main":
-                            await Start(botClient, chatId);
+                            await Start(botClient, chatId, update.CallbackQuery.From.Username);
                             break;
                         case "Instagram likes":
                             await SendFilteredItemsAsync("Instagram likes", chatId, botClient);
@@ -1166,8 +1121,78 @@ class Program
                             await SendFilteredItemsAsync("music", chatId, botClient);
                             break;
                         default:
-                            await botClient.SendTextMessageAsync(chatId, "⚠️ Неизвестная команда.");
+                            if (callbackData.StartsWith("check"))
+                            {
+                                var parts = callbackData.Split(' ');
+                                if (parts.Length < 2)
+                                {
+                                    return;
+                                }
+                                var orderId = parts[1];
+                                var freeCassa = new FreeCassa();
+                                var orderResponse = await freeCassa.GetOrderAsync(orderId);
+                                if (orderResponse != null && orderResponse.ContainsKey("orders"))
+                                {
+                                    var orders = JsonConvert.SerializeObject(orderResponse["orders"]);
+                                    var ordersArray = JArray.Parse(orderResponse["orders"].ToString());
+                                    foreach (var order in ordersArray)
+                                    {
+                                        var statusMessage = "Платеж не оплачен❌"; // Default message for unsuccessful payment
+                                        if ((int)order["status"] == 1)
+                                        {
+                                            using (var connection = new MySqlConnection(ConnectionString))
+                                            {
+                                                await connection.OpenAsync();
+
+                                                // Сначала получаем текущий баланс пользователя
+                                                string selectQuery = "SELECT balance FROM users WHERE chat_id = @chatId";
+                                                decimal currentBalance = 0;
+                                                using (var selectCommand = new MySqlCommand(selectQuery, connection))
+                                                {
+                                                    selectCommand.Parameters.AddWithValue("@chatId", callbackQuery.From.Id);
+                                                    var result = await selectCommand.ExecuteScalarAsync();
+                                                    if (result != null)
+                                                    {
+                                                        currentBalance = Convert.ToDecimal(result);
+                                                    }
+                                                }
+
+                                                // Плюсуем новый платеж к текущему балансу
+                                                decimal newBalance = currentBalance + (decimal)order["amount"];
+
+                                                // Обновляем баланс в базе данных
+                                                string updateQuery = "UPDATE users SET balance = @newBalance WHERE chat_id = @chatId";
+                                                using (var updateCommand = new MySqlCommand(updateQuery, connection))
+                                                {
+                                                    updateCommand.Parameters.AddWithValue("@newBalance", newBalance);
+                                                    updateCommand.Parameters.AddWithValue("@chatId", callbackQuery.From.Id);
+                                                    await updateCommand.ExecuteNonQueryAsync();
+                                                }
+                                            }
+                                            statusMessage = "Платеж был зачислен💚"; // Message for successful payment
+                                        }
+
+                                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+                                        {
+                                            new[]
+                                            {
+                                                InlineKeyboardButton.WithCallbackData("Главная", "main")
+                                            }
+                                        });
+                                        await botClient.SendTextMessageAsync(
+                                            chatId,
+                                            statusMessage,
+                                            replyMarkup: inlineKeyboard
+                                        );
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                await botClient.SendTextMessageAsync(chatId, "⚠️ Неизвестная команда.");
+                            }
                             break;
+
                     }
                 }
             }
@@ -1182,3 +1207,4 @@ class Program
         }
     }
 }
+//dotnet publish -c Release -r ubuntu.22.04-x64
