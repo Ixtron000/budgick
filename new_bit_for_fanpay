@@ -1,0 +1,220 @@
+using System;
+using System.Net.Http;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Telegram.Bot;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
+using System.Linq;
+using System.Threading;
+
+class Program
+{
+    private static readonly string botToken = "7197293618:AAEdjKHiF2mFo5MaM7bHLK9vuumdEsWisgQ";
+    private static readonly string apiKey = "bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP";
+    private static readonly string apiUrl = $"https://soc-rocket.ru/api/v2/?key={apiKey}&action=services";
+
+    static async Task Main()
+    {
+        var botClient = new TelegramBotClient(botToken);
+        var me = await botClient.GetMeAsync();
+        Console.WriteLine($"Бот {me.FirstName} запущен!");
+
+        botClient.StartReceiving(UpdateHandler, ErrorHandler);
+        Console.ReadLine();
+    }
+
+    private static async Task UpdateHandler(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
+    {
+        if (update.Type == UpdateType.Message && update.Message!.Text == "/start")
+        {
+            Console.WriteLine
+            string[] categories = await GetCategoriesAsync();
+            var keyboard = new InlineKeyboardMarkup(categories.Select(c => InlineKeyboardButton.WithCallbackData(c)));
+            await botClient.SendTextMessageAsync(update.Message.Chat.Id, "Выберите категорию:", replyMarkup: keyboard, cancellationToken: cancellationToken);
+        }
+        else if (update.Type == UpdateType.CallbackQuery)
+        {
+            string selectedCategory = update.CallbackQuery.Data;
+
+            // Разделяем строку на слова
+            string[] parts = selectedCategory.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            // Проверяем количество слов в callback
+            if (parts.Length == 1 && !int.TryParse(parts[0], out int number1))
+            {
+                // Если одно слово, то просто ищем по этому слову
+                string[] allCategories = await GetCategoriesAsyncAll();
+                var matchingCategories = allCategories
+                    .Where(c => c.Contains(parts[0], StringComparison.OrdinalIgnoreCase))
+                    .Distinct()
+                    .ToArray();
+
+                var keyboard = new InlineKeyboardMarkup(matchingCategories.Select(c => InlineKeyboardButton.WithCallbackData(c)));
+                await botClient.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, "Выберите категорию из подходящих:", replyMarkup: keyboard, cancellationToken: cancellationToken);
+            }
+            else if (parts.Length == 2)
+            {
+
+                
+                    string selectedCategory1 = update.CallbackQuery.Data;
+                    await GetServicesByCategoryAsync(selectedCategory1, botClient, update.CallbackQuery.Message.Chat.Id, cancellationToken);
+                
+
+
+            }
+            // Если два слова, проверяем, является ли второе слово числовым
+            else if (int.TryParse(parts[0], out int number))
+            {
+
+                
+                string servicesInfo = await GetServicesByCategoryAsync1(number.ToString());
+                Console.WriteLine(servicesInfo);
+                // Если первое слово — число
+                await botClient.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, $"id: {number}; \n\r{servicesInfo}", cancellationToken: cancellationToken);
+                
+            }
+            else
+            {
+            }
+        }
+    }
+    private static async Task<string[]> GetCategoriesAsyncAll()
+    {
+        using (HttpClient client = new HttpClient())
+        {
+            HttpResponseMessage response = await client.GetAsync(apiUrl);
+            string jsonResponse = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var responseData = JsonConvert.DeserializeObject<JArray>(jsonResponse);
+                // Извлекаем только первые слова категорий (например, "Instagram" из "Instagram likes")
+                return responseData
+                    .Select(item => item["category"].ToString())  // Берем только первую часть
+                    .Distinct()
+                    .ToArray();
+            }
+            catch (Exception ex)
+            {
+                return new string[] { "Ошибка загрузки категорий: " + ex.Message };
+            }
+        }
+    }
+    private static async Task<string[]> GetCategoriesAsync()
+    {
+        using (HttpClient client = new HttpClient())
+        {
+            HttpResponseMessage response = await client.GetAsync(apiUrl);
+            string jsonResponse = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var responseData = JsonConvert.DeserializeObject<JArray>(jsonResponse);
+                // Извлекаем только первые слова категорий (например, "Instagram" из "Instagram likes")
+                return responseData
+                    .Select(item => item["category"].ToString().Split(' ')[0])  // Берем только первую часть
+                    .Distinct()
+                    .ToArray();
+            }
+            catch (Exception ex)
+            {
+                return new string[] { "Ошибка загрузки категорий: " + ex.Message };
+            }
+        }
+    }
+
+    private static async Task<string> GetServicesByCategoryAsync(string category, ITelegramBotClient botClient, long chatId, CancellationToken cancellationToken)
+    {
+        using (HttpClient client = new HttpClient())
+        {
+            HttpResponseMessage response = await client.GetAsync(apiUrl);
+            string jsonResponse = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var responseData = JsonConvert.DeserializeObject<JArray>(jsonResponse);
+                var services = responseData.Where(item => item["category"].ToString().Contains(category, StringComparison.OrdinalIgnoreCase));
+
+                if (!services.Any()) return "Услуги в данной категории не найдены.";
+
+                string result = $"*Услуги в категории:* {category}\n";
+                var keyboard = new List<InlineKeyboardButton[]>();
+
+                foreach (var item in services)
+                {
+                    // Формируем строку с информацией о сервисе
+                    result += $"\n*Название:* {item["name"]}\n";
+                    result += $"\nСервис ID: {item["service"]}";
+                    result += $"*Цена за 1000 единиц:* {item["rate"]} руб.\n";
+                    result += "----------------------------------\n";
+
+                    // Добавляем кнопку с ID услуги
+                    var button = InlineKeyboardButton.WithCallbackData(item["name"].ToString(), item["service"].ToString());
+                    keyboard.Add(new InlineKeyboardButton[] { button });
+                }
+
+                // Отправка сообщения с кнопками
+                await botClient.SendTextMessageAsync(chatId, result, replyMarkup: new InlineKeyboardMarkup(keyboard), cancellationToken: cancellationToken);
+
+                return result.Length > 4096 ? result.Substring(0, 4096) : result;
+            }
+            catch (Exception ex)
+            {
+                return "Ошибка обработки JSON: " + ex.Message;
+            }
+        }
+    }
+    private static async Task<string> GetServicesByCategoryAsync1(string id)
+    {
+        using (HttpClient client = new HttpClient())
+        {
+            HttpResponseMessage response = await client.GetAsync(apiUrl);
+            string jsonResponse = await response.Content.ReadAsStringAsync();
+
+            try
+            {
+                var responseData = JsonConvert.DeserializeObject<JArray>(jsonResponse);
+                var services = responseData.Where(item => item["service"]?.ToString() == id);
+
+                if (!services.Any()) return "Услуги в данной категории не найдены.";
+
+                string result = "";
+                foreach (var item in services)
+                {
+                    // Заменяем HTML-сущности на обычные символы новой строки
+                    string description = item["description"]?.ToString() ?? "Не указано";
+                    description = description.Replace("&lt;br&gt;", "\n"); // Заменяем <br> на новый абзац
+
+                    // Формирование строки с данными
+                    result += $"\n*Название:* {item["name"]?.ToString() ?? "Не указано"}\n";
+                    result += $"*Цена за 1000 единиц:* {item["rate"]?.ToString() ?? "Не указано"} руб.\n";
+                    result += $"Минимальный заказ: {item["min"]?.ToString() ?? "Не указано"}\n";
+                    result += $"Максимальный заказ: {item["max"]?.ToString() ?? "Не указано"}\n";
+                    result += $"Тип услуги: {item["type"]?.ToString() ?? "Не указано"}\n";
+                    result += $"Описание: {description}\n"; // Используем отформатированное описание
+                    result += $"Скорость выполнения: {item["speed"]?.ToString() ?? "Не указано"}\n";
+                    result += new string('-', 50) + "\n"; // Разделитель
+
+                    // Прерывание, если результат слишком длинный
+                    if (result.Length > 4096)
+                        return result.Substring(0, 4096);
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                return "Ошибка обработки JSON: " + ex.Message;
+            }
+        }
+    }
+
+
+
+    private static Task ErrorHandler(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
+    {
+        Console.WriteLine($"Ошибка: {exception.Message}");
+        return Task.CompletedTask;
+    }
+}
