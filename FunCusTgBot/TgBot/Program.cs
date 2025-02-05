@@ -373,7 +373,15 @@ class Program
         }
 
         // Отправка приветственного сообщения
-        await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, welcomeMessage, replyMarkup: inlineKeyboard);
+        if (update is null)
+        {
+            await botClient.SendTextMessageAsync(chatId, welcomeMessage, replyMarkup: inlineKeyboard);
+        }
+        else
+        {
+            await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, welcomeMessage, replyMarkup: inlineKeyboard);
+        }
+        
         return welcomeMessage;
     }
 
