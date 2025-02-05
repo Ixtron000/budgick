@@ -1,4 +1,6 @@
-﻿using MySql.Data.MySqlClient;
+﻿using Autofac;
+using Infrastructure.Interfaces;
+using MySql.Data.MySqlClient;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Security.Cryptography;
@@ -7,6 +9,7 @@ using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
+using TgBot;
 
 
 class FreeCassa
@@ -117,12 +120,26 @@ class Program
 {
     private static string ConnectionString = "Server=localhost;Database=budguck;User=root;Password=Ixtron2021!;";
     private static readonly string Token = "7197293618:AAEdjKHiF2mFo5MaM7bHLK9vuumdEsWisgQ";
-    private static readonly TelegramBotClient BotClient = new TelegramBotClient(Token);
     private static readonly CancellationTokenSource CancellationToken = new CancellationTokenSource();
     private static readonly HttpClient HttpClient = new HttpClient();
 
+    private static ILifetimeScope _scope;
+
+    private static IUserMessageService _userMessageService;
+    private static IBotClientService _botClientService;
+
     static async Task Main(string[] args)
     {
+        // Создаём контейнер DI
+        var builder = new ContainerBuilder();
+        builder.RegisterModule(new InjectModule());
+
+        var container = builder.Build();
+
+        _scope = container.BeginLifetimeScope();
+        _userMessageService = _scope.Resolve<IUserMessageService>();
+        _botClientService = _scope.Resolve<IBotClientService>();
+
         BotClient.StartReceiving(UpdateHandler, ErrorHandler, cancellationToken: CancellationToken.Token);
 
         Console.WriteLine("Бот запущен.");
@@ -132,6 +149,8 @@ class Program
         CancellationToken.Cancel();
 
     }
+
+    private static TelegramBotClient BotClient => (TelegramBotClient)_botClientService.GetTelegramBotClient();
 
     private static void UpdateUserBalance(string orderId, decimal amount)
     {
@@ -287,7 +306,7 @@ class Program
         Console.WriteLine($"Произошла ошибка: {exception.Message}");
     }
     // /start
-    private static async Task Start(ITelegramBotClient botClient, long chatId, string name)
+    private static async Task<string> Start(ITelegramBotClient botClient, long chatId, string name, Update update = null)
     {
         // Приветственное сообщение
         string welcomeMessage = "Здравствуйте! 🎉\n\n" +
@@ -353,13 +372,13 @@ class Program
             }
         }
 
-
         // Отправка приветственного сообщения
-        await botClient.SendTextMessageAsync(chatId, welcomeMessage, replyMarkup: inlineKeyboard);
+        await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, welcomeMessage, replyMarkup: inlineKeyboard);
+        return welcomeMessage;
     }
 
     // полувение под категорий
-    private static async Task SendFilteredCategoriesAsync(long chatId, string messageText, string keyword, ITelegramBotClient botClient)
+    private static async Task SendFilteredCategoriesAsync(long chatId, string messageText, string keyword, ITelegramBotClient botClient, Update update = null)
     {
         string url = "https://soc-rocket.ru/api/v2/?action=services&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP";
         var secondWordTranslations = new Dictionary<string, (string translation, string emoji)>
@@ -399,7 +418,7 @@ class Program
                 .ToList();
             inlineKeyboardButtons.Add(new[] { InlineKeyboardButton.WithCallbackData("<< Главная", "main") });
             var inlineKeyboard = new InlineKeyboardMarkup(inlineKeyboardButtons);
-            await botClient.SendTextMessageAsync(chatId, messageText, replyMarkup: inlineKeyboard);
+            await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, messageText, replyMarkup: inlineKeyboard);
         }
         catch (HttpRequestException e)
         {
@@ -415,7 +434,7 @@ class Program
 
 
     //поиск айтемов по категории
-    private static async Task SendFilteredItemsAsync(string category, long chatId, ITelegramBotClient botClient)
+    private static async Task SendFilteredItemsAsync(string category, long chatId, ITelegramBotClient botClient, Update update = null)
     {
         try
         {
@@ -424,8 +443,6 @@ class Program
 
             string responseBody = await response.Content.ReadAsStringAsync();
             JArray jsonArray = JArray.Parse(responseBody);
-
-            string firstWord = category.Split(' ').FirstOrDefault();
 
             var filteredItems = jsonArray
                 .Where(service => service["category"]?.ToString() == category)
@@ -441,9 +458,7 @@ class Program
                 .Select(item => InlineKeyboardButton.WithCallbackData(item.Name, item.Service))
                 .ToList();
 
-            string modifiedFirstWord = char.ToLower(firstWord[0]) + firstWord.Substring(1);
-            buttons.Add(InlineKeyboardButton.WithCallbackData($"🔙 Назад", $"{modifiedFirstWord}"));
-
+            buttons.Add(InlineKeyboardButton.WithCallbackData($"🔙 Назад", "main"));
 
             var keyboardMarkup = new InlineKeyboardMarkup(
                 buttons
@@ -453,11 +468,14 @@ class Program
 
             if (filteredItems.Any())
             {
-                await botClient.SendTextMessageAsync(chatId, $"🔍 Вы выбрали категорию '{category}'. 🎯 В этом разделе собраны все доступные услуги в выбранной категории. 🌟 Ознакомьтесь с полным списком, чтобы найти именно то, что вам нужно! 📋 Если у вас возникнут вопросы или нужна помощь, мы всегда готовы помочь! 💬🔧", replyMarkup: keyboardMarkup);
+                var msg = $"🔍 Вы выбрали категорию '{category}'. 🎯 В этом разделе собраны все доступные услуги в выбранной категории. 🌟 Ознакомьтесь с полным списком, чтобы найти именно то, что вам нужно! 📋 Если у вас возникнут вопросы или нужна помощь, мы всегда готовы помочь! 💬🔧";
+                await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, msg, replyMarkup: keyboardMarkup);
+
             }
             else
             {
-                await botClient.SendTextMessageAsync(chatId, $"🚫 В категории '{category}' нет доступных услуг.");
+                var msg = $"🚫 В категории '{category}' нет доступных услуг.";
+                await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, msg);
             }
 
         }
@@ -473,7 +491,7 @@ class Program
         }
     }
     // поолучение и вывод информации о заказе
-    private static async Task SendServiceDetailsAsync(int serviceId, long chatId, ITelegramBotClient botClient)
+    private static async Task SendServiceDetailsAsync(int serviceId, long chatId, ITelegramBotClient botClient, Update update = null)
     {
         try
         {
@@ -507,11 +525,13 @@ class Program
                         InlineKeyboardButton.WithCallbackData("🔙 Назад", service["category"].ToString())
                     }
                 });
-                await botClient.SendTextMessageAsync(chatId, serviceDetails, replyMarkup: inlineKeyboard);
+                await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, serviceDetails, replyMarkup: inlineKeyboard);
+
             }
             else
             {
-                await botClient.SendTextMessageAsync(chatId, "⚠️ Услуга не найдена.");
+                var msg = "⚠️ Услуга не найдена.";
+                await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, msg);
             }
         }
         catch (HttpRequestException e)
@@ -676,7 +696,7 @@ class Program
                                 InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
                             }
                         });
-                        await botClient.SendTextMessageAsync(chatId, "⚒Столкнулись с роблемой? \n🎇 Тогда нпишите нам!🎇", replyMarkup: inlineKeyboard);
+                            await botClient.SendTextMessageAsync(chatId, "⚒Столкнулись с роблемой? \n🎇 Тогда нпишите нам!🎇", replyMarkup: inlineKeyboard);
                     }
                     else if (messageText.StartsWith("/buy"))
                     {
@@ -983,7 +1003,7 @@ class Program
                 var callbackData = callbackQuery.Data;
                 if (int.TryParse(callbackData, out int serviceId))
                 {
-                    await SendServiceDetailsAsync(serviceId, chatId, botClient);
+                    await SendServiceDetailsAsync(serviceId, chatId, botClient, update);
                 }
                 else
                 {
@@ -994,7 +1014,7 @@ class Program
                                 $"💬 **Категория: Telegram**\n\n" +
                                 "✨ Мы рады предложить вам широкий выбор предложений в категории Telegram. Ознакомьтесь с нашим ассортиментом ниже и выберите то, что вам наиболее интересно! 👇\n\n" +
                                 "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
-                                callbackData, botClient);
+                                callbackData, botClient, update);
                             break;
 
                         case "vk":
@@ -1002,7 +1022,7 @@ class Program
                                 $"📱 **Категория: VK**\n\n" +
                                 "🎉 Добро пожаловать в категорию VK! Здесь вы найдете множество интересных предложений. Ознакомьтесь с нашим ассортиментом и выберите то, что вам больше всего нравится! 👇\n\n" +
                                 "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
-                                callbackData, botClient);
+                                callbackData, botClient, update);
                             break;
 
                         case "youtube":
@@ -1010,7 +1030,7 @@ class Program
                                 $"📺 **Категория: YouTube**\n\n" +
                                 "🌟 Исследуйте категорию YouTube и найдите множество увлекательных предложений. Просмотрите наш ассортимент и выберите то, что вам по душе! 👇\n\n" +
                                 "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
-                                callbackData, botClient);
+                                callbackData, botClient, update);
                             break;
 
                         case "instagram":
@@ -1018,94 +1038,94 @@ class Program
                                 $"📸 **Категория: Instagram**\n\n" +
                                 "📷 Добро пожаловать в категорию Instagram! Здесь вы найдете множество интересных предложений. Ознакомьтесь с нашим ассортиментом и выберите то, что вам больше всего нравится! 👇\n\n" +
                                 "📩 Если у вас есть вопросы или требуется помощь, не стесняйтесь обращаться к нам. Мы всегда на связи!",
-                                callbackData, botClient);
+                                callbackData, botClient, update);
                             break;
                         case "main":
-                            await Start(botClient, chatId, update.CallbackQuery.From.Username);
+                            await Start(botClient, chatId, update.CallbackQuery.From.Username, update);
                             break;
                         case "Instagram likes":
-                            await SendFilteredItemsAsync("Instagram likes", chatId, botClient);
+                            await SendFilteredItemsAsync("Instagram likes", chatId, botClient, update);
                             break;
                         case "Instagram views":
-                            await SendFilteredItemsAsync("Instagram views", chatId, botClient);
+                            await SendFilteredItemsAsync("Instagram views", chatId, botClient, update);
                             break;
                         case "Instagram followers":
-                            await SendFilteredItemsAsync("Instagram followers", chatId, botClient);
+                            await SendFilteredItemsAsync("Instagram followers", chatId, botClient, update);
                             break;
                         case "Instagram auto":
-                            await SendFilteredItemsAsync("Instagram auto", chatId, botClient);
+                            await SendFilteredItemsAsync("Instagram auto", chatId, botClient, update);
                             break;
                         case "Instagram other":
-                            await SendFilteredItemsAsync("Instagram other", chatId, botClient);
+                            await SendFilteredItemsAsync("Instagram other", chatId, botClient, update);
                             break;
                         case "Instagram comments":
-                            await SendFilteredItemsAsync("Instagram comments", chatId, botClient);
+                            await SendFilteredItemsAsync("Instagram comments", chatId, botClient, update);
                             break;
                         case "VK likes":
-                            await SendFilteredItemsAsync("VK likes", chatId, botClient);
+                            await SendFilteredItemsAsync("VK likes", chatId, botClient, update);
                             break;
                         case "VK friends":
-                            await SendFilteredItemsAsync("VK friends", chatId, botClient);
+                            await SendFilteredItemsAsync("VK friends", chatId, botClient, update);
                             break;
                         case "VK followers":
-                            await SendFilteredItemsAsync("VK followers", chatId, botClient);
+                            await SendFilteredItemsAsync("VK followers", chatId, botClient, update);
                             break;
                         case "VK views":
-                            await SendFilteredItemsAsync("VK views", chatId, botClient);
+                            await SendFilteredItemsAsync("VK views", chatId, botClient, update);
                             break;
                         case "VK other":
-                            await SendFilteredItemsAsync("VK other", chatId, botClient);
+                            await SendFilteredItemsAsync("VK other", chatId, botClient, update);
                             break;
                         case "Youtube views":
-                            await SendFilteredItemsAsync("Youtube views", chatId, botClient);
+                            await SendFilteredItemsAsync("Youtube views", chatId, botClient, update);
                             break;
                         case "Youtube likes":
-                            await SendFilteredItemsAsync("Youtube likes", chatId, botClient);
+                            await SendFilteredItemsAsync("Youtube likes", chatId, botClient, update);
                             break;
                         case "Youtube livestream":
-                            await SendFilteredItemsAsync("Youtube livestream", chatId, botClient);
+                            await SendFilteredItemsAsync("Youtube livestream", chatId, botClient, update);
                             break;
                         case "Youtube followers":
-                            await SendFilteredItemsAsync("Youtube followers", chatId, botClient);
+                            await SendFilteredItemsAsync("Youtube followers", chatId, botClient, update);
                             break;
                         case "Youtube other":
-                            await SendFilteredItemsAsync("Youtube other", chatId, botClient);
+                            await SendFilteredItemsAsync("Youtube other", chatId, botClient, update);
                             break;
                         case "Telegram followers":
-                            await SendFilteredItemsAsync("Telegram followers", chatId, botClient);
+                            await SendFilteredItemsAsync("Telegram followers", chatId, botClient, update);
                             break;
                         case "Telegram views":
-                            await SendFilteredItemsAsync("Telegram views", chatId, botClient);
+                            await SendFilteredItemsAsync("Telegram views", chatId, botClient, update);
                             break;
                         case "Telegram reaction":
-                            await SendFilteredItemsAsync("Telegram reaction", chatId, botClient);
+                            await SendFilteredItemsAsync("Telegram reaction", chatId, botClient, update);
                             break;
                         case "Telegram statistic":
-                            await SendFilteredItemsAsync("Telegram statistic", chatId, botClient);
+                            await SendFilteredItemsAsync("Telegram statistic", chatId, botClient, update);
                             break;
                         case "Telegram auto":
-                            await SendFilteredItemsAsync("Telegram auto", chatId, botClient);
+                            await SendFilteredItemsAsync("Telegram auto", chatId, botClient, update);
                             break;
                         case "Telegram premium":
-                            await SendFilteredItemsAsync("Telegram premium", chatId, botClient);
+                            await SendFilteredItemsAsync("Telegram premium", chatId, botClient, update);
                             break;
                         case "Telegram other":
-                            await SendFilteredItemsAsync("Telegram other", chatId, botClient);
+                            await SendFilteredItemsAsync("Telegram other", chatId, botClient, update);
                             break;
                         case "tiktok":
-                            await SendFilteredItemsAsync("tiktok", chatId, botClient);
+                            await SendFilteredItemsAsync("tiktok", chatId, botClient, update);
                             break;
                         case "rutube":
-                            await SendFilteredItemsAsync("rutube", chatId, botClient);
+                            await SendFilteredItemsAsync("rutube", chatId, botClient, update);
                             break;
                         case "dzen":
-                            await SendFilteredItemsAsync("dzen", chatId, botClient);
+                            await SendFilteredItemsAsync("dzen", chatId, botClient, update);
                             break;
                         case "shedevrum":
-                            await SendFilteredItemsAsync("shedevrum", chatId, botClient);
+                            await SendFilteredItemsAsync("shedevrum", chatId, botClient, update);
                             break;
                         case "music":
-                            await SendFilteredItemsAsync("music", chatId, botClient);
+                            await SendFilteredItemsAsync("music", chatId, botClient, update);
                             break;
                         default:
                             if (callbackData.StartsWith("check"))
