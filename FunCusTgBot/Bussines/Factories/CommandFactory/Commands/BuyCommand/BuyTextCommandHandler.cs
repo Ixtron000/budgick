@@ -99,6 +99,10 @@ namespace Bussines.Factories.CommandFactory.Commands.BuyCommand
                 }
 
                 await _botClient.SendMessage(chatId, msg);
+
+                // удаляем команду при завершении оформления заказа.
+                // удалять обязательно, потому что словарь можно наполниться до огромных размеров
+                CommandStateManager.DeleteCommand(chatId);
             }
 
             if (CurrentStateCommand.BuyCommand.State is BuyCommandState.SendLink)
