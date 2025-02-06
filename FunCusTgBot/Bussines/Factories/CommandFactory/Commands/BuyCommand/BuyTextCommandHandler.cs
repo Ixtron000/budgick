@@ -85,7 +85,7 @@ namespace Bussines.Factories.CommandFactory.Commands.BuyCommand
             if (CurrentStateCommand.BuyCommand.State is BuyCommandState.SendLink)
             {
                 var msg = "Формирование покупки.";
-                if (!string.IsNullOrEmpty(messageText))
+                if (IsValidUrl(messageText))
                 {
                     // обновил команду
                     CurrentStateCommand.BuyCommand.Link = messageText;
@@ -99,11 +99,9 @@ namespace Bussines.Factories.CommandFactory.Commands.BuyCommand
                 }
 
                 await _botClient.SendMessage(chatId, msg);
-
-                // удаляем команду при завершении оформления заказа.
-                // удалять обязательно, потому что словарь можно наполниться до огромных размеров
-                CommandStateManager.DeleteCommand(chatId);
             }
+
+            bool hasError = false;
 
             if (CurrentStateCommand.BuyCommand.State is BuyCommandState.SendLink)
             {
@@ -187,16 +185,19 @@ namespace Bussines.Factories.CommandFactory.Commands.BuyCommand
                                             }
                                             else if (statusResponse.ContainsKey("error"))
                                             {
+                                                hasError = true;
                                                 string errorMessage = $"Ошибка при получении статуса заказа {orderId}: {statusResponse["error"]}";
                                                 await _botClient.SendTextMessageAsync(chatId, errorMessage);
                                             }
                                         }
                                         else if (jsonResponse.ContainsKey("error"))
                                         {
+                                            hasError = true;
                                             await _botClient.SendTextMessageAsync(chatId, $"Ошибка: {jsonResponse["error"]}");
                                         }
                                         else
                                         {
+                                            hasError = true;
                                             Console.WriteLine("Неизвестный ответ от сервера");
                                         }
                                     }
@@ -209,7 +210,7 @@ namespace Bussines.Factories.CommandFactory.Commands.BuyCommand
                                                         InlineKeyboardButton.WithCallbackData("🔙 Главная","main")
                                                     }
                                                 });
-                                        await _botClient.SendTextMessageAsync(chatId, $"❌ У вас не хватает средств на балансе! ❌" +
+                                        await _botClient.SendMessage(chatId, $"❌ У вас не хватает средств на балансе! ❌" +
                                             "\r\n\n" +
                                             $"💚Ваш баланс: {balance} ₽\n" +
                                             $"💛Требуется к оплате: {formattedAmountToDeduct} ₽\n\n" +
@@ -218,7 +219,8 @@ namespace Bussines.Factories.CommandFactory.Commands.BuyCommand
                                 }
                                 else
                                 {
-                                    await _botClient.SendTextMessageAsync(chatId, "Произошла ошибка. 😔");
+                                    await _botClient.SendMessage(chatId, "Произошла ошибка. 😔");
+                                    hasError = true;
                                 }
                             }
                         }
@@ -227,8 +229,37 @@ namespace Bussines.Factories.CommandFactory.Commands.BuyCommand
                 catch (HttpRequestException e)
                 {
                     Console.WriteLine($"Ошибка запроса: {e.Message}");
+                    hasError = true;
                 }
             }
+
+            var endMsg = "Заказ сформирован.";
+            var keyBrd = new InlineKeyboardMarkup(new[] { InlineKeyboardButton.WithCallbackData("🔙 Назад", "main") });
+
+            if (hasError)
+            {
+                endMsg = "Произошла ошибка. 😔";
+            }
+
+            // удаляем команду при завершении оформления заказа.
+            // удалять обязательно, потому что словарь можно наполниться до огромных размеров
+            CommandStateManager.DeleteCommand(chatId);
+
+            await _botClient.SendMessage(chatId, endMsg, replyMarkup: keyBrd);
         }
+
+        public static bool IsValidUrl(string url)
+        {
+            // Проверяем, чтобы строка не была пустой
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return false;
+            }
+
+            // Пробуем создать Uri
+            return Uri.TryCreate(url, UriKind.Absolute, out Uri? uriResult)
+                   && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
+        }
+
     }
 }

@@ -536,6 +536,10 @@ class Program
                 {
                     new[]
                     {
+                        InlineKeyboardButton.WithCallbackData("💶 Купить", "buy".ToString())
+                    },
+                    new[]
+                    {
                         InlineKeyboardButton.WithCallbackData("🔙 Назад", service["category"].ToString())
                     }
                 });
@@ -598,16 +602,16 @@ class Program
     {
         try
         {
+            var commandHandler = CommandTypeHandlerFactory.GetHandler(botClient, update, ConnectionString);
+
+            if (commandHandler is not null)
+            {
+                await commandHandler.ExecuteAsync();
+                return;
+            }
+
             if (update.Message is { } message)
             {
-                var commandHandler = CommandTypeHandlerFactory.GetHandler(botClient, update, ConnectionString);
-
-                if (commandHandler is not null)
-                {
-                    await commandHandler.ExecuteAsync();
-                    return;
-                }
-
                 if (message.Text is { } messageText)
                 {
                     var chatId = message.Chat.Id;

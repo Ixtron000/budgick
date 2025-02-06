@@ -13,6 +13,19 @@ namespace Bussines.Factories.CommandFactory
     {
         public static ITypeCommandHandler GetHandler(ITelegramBotClient botClient, Update update, string connectionString)
         {
+            if (update.Message is null)
+            {
+                if (update.CallbackQuery.Data == "buy")
+                {
+                    update.Message = update.CallbackQuery.Message;
+                    update.Message.Text = "/buy";
+                }
+                else
+                {
+                    return null;
+                }
+            }
+
             ICommandHandler commandhandler = null;
             var messageType = update.Message.Type;
             var userId = update.Message.Chat.Id;
