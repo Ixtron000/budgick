@@ -1,5 +1,4 @@
 ﻿using Infrastructure.Commands;
-using Infrastructure.Enums;
 
 namespace Infrastructure.Models
 {

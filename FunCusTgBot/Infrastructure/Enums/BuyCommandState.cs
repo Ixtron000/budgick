@@ -11,11 +11,6 @@
         None,
 
         /// <summary>
-        /// Статус выбора id услуги
-        /// </summary>
-        ChooseServiceId,
-
-        /// <summary>
         /// Статус выбора количество услуги
         /// </summary>
         ChooseCount,

@@ -1,8 +1,8 @@
 ﻿using Bussines.Commands;
+using Bussines.Extensions;
 using Bussines.Factories.CommandFactory.Commands.BuyCommand;
 using Bussines.Factories.CommandFactory.Commands.PCommand;
 using Infrastructure.Interfaces;
-using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -13,51 +13,35 @@ namespace Bussines.Factories.CommandFactory
     {
         public static ITypeCommandHandler GetHandler(ITelegramBotClient botClient, Update update, string connectionString)
         {
-            if (update.Message is null)
-            {
-                if (update.CallbackQuery.Data == "buy")
-                {
-                    update.Message = update.CallbackQuery.Message;
-                    update.Message.Text = "/buy";
-                }
-                else
-                {
-                    return null;
-                }
-            }
-
             ICommandHandler commandhandler = null;
             var messageType = update.Message.Type;
-            var userId = update.Message.Chat.Id;
+            var userId = update.GetUserId();
+            var commandName = string.Empty;
+
+            // проверяем находится ли пользователь в состоянии машине состоянии команды
+            if (CommandStateManager.IsExistsState(userId))
+            {
+                commandName = CommandStateManager.GetCommand(userId).Command;
+            }
+            else
+            {
+                commandName = update.GetCommand();
+            }
 
             switch (messageType)
             {
                 case MessageType.Text:
                     {
-                        string commandText = string.Empty;
-                        
-                        // проверяем находится ли пользователь в состоянии машине состоянии команды
-                        if (CommandStateManager.IsExistsState(userId))
-                        {
-                            commandText = CommandStateManager.GetCommand(userId).Command;
-                        }
-                        else
-                        {
-                            commandText = GetCommandName(update.Message.Text);
-                        }
-
-
-                        if (commandText == "p")
+                        if (commandName == "p")
                         {
                             commandhandler = new PTextCommandHandler(botClient, update, connectionString);
                         }
-                        else if (commandText == "buy")
+                        else if (commandName == "buy")
                         {
                             commandhandler = new BuyTextCommandHandler(botClient, update, connectionString);
                         }
                         else
                         {
-                            Console.WriteLine("Реализация команды данного типа сообщения отсутствует.");
                             return null;
                         }
 
@@ -65,15 +49,12 @@ namespace Bussines.Factories.CommandFactory
                     }
                 case MessageType.Photo:
                     {
-                        var commandText = GetCommandName(update.Message.Caption);
-
-                        if (commandText == "p")
+                        if (commandName == "p")
                         {
                             commandhandler = new PPhotoCommandHandler(botClient, update, connectionString);
                         }
                         else
                         {
-                            Console.WriteLine("Реализация команды данного типа сообщения отсутствует.");
                             return null;
                         }
 
@@ -82,24 +63,6 @@ namespace Bussines.Factories.CommandFactory
                 default:
                     Console.WriteLine("Реализация команды данного типа сообщения отсутствует.");
                     return null;
-            }
-        }
-
-        private static string GetCommandName(string commandText)
-        {
-            // Регулярное выражение для команды в начале строки
-            Regex commandRegex = new Regex(@"^/(?<command>\w+)");
-
-            // Попытка извлечь команду
-            Match match = commandRegex.Match(commandText);
-            if (match.Success)
-            {
-                string command = match.Groups["command"].Value;
-                return command;
-            }
-            else
-            {
-                throw new ArgumentException("Команда отсутствует или находится не в начале строки.");
             }
         }
     }

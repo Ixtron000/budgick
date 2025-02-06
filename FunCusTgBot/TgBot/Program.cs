@@ -1,4 +1,5 @@
 ﻿using Autofac;
+using Bussines.Factories.CallbackFactory;
 using Bussines.Factories.CommandFactory;
 using Infrastructure.Interfaces;
 using MySql.Data.MySqlClient;
@@ -528,15 +529,12 @@ class Program
 🟧 Минимальное количество: {service["min"]}
 🟩 Максимальное количество: {service["max"]}
 🟨 Докрутка: {service["refill"]}
-❌ Отмена: {service["cancel"]}
-
-💶Чтобы купить, напишите команду 🛒:
-/buy {serviceId} количество ссылка";
+❌ Отмена: {service["cancel"]}";
                 var inlineKeyboard = new InlineKeyboardMarkup(new[]
                 {
                     new[]
                     {
-                        InlineKeyboardButton.WithCallbackData("💶 Купить", "buy".ToString())
+                        InlineKeyboardButton.WithCallbackData("💶 Купить", $"buy {serviceId}".ToString())
                     },
                     new[]
                     {
@@ -602,16 +600,16 @@ class Program
     {
         try
         {
-            var commandHandler = CommandTypeHandlerFactory.GetHandler(botClient, update, ConnectionString);
-
-            if (commandHandler is not null)
-            {
-                await commandHandler.ExecuteAsync();
-                return;
-            }
-
             if (update.Message is { } message)
             {
+                var commandHandler = CommandTypeHandlerFactory.GetHandler(botClient, update, ConnectionString);
+
+                if (commandHandler is not null)
+                {
+                    await commandHandler.ExecuteAsync();
+                    return;
+                }
+
                 if (message.Text is { } messageText)
                 {
                     var chatId = message.Chat.Id;
@@ -839,6 +837,14 @@ class Program
             }
             if (update.CallbackQuery is { } callbackQuery)
             {
+                var callbackHandler = CallbackHandlerFactory.GetHandler(botClient, update, ConnectionString);
+
+                if (callbackHandler is not null)
+                {
+                    await callbackHandler.ExecuteAsync();
+                    return;
+                }
+
                 var chatId = callbackQuery.Message.Chat.Id;
                 var callbackData = callbackQuery.Data;
                 if (int.TryParse(callbackData, out int serviceId))

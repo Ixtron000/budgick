@@ -12,11 +12,11 @@ namespace Bussines.Factories.CommandFactory.Commands
         protected readonly ITelegramBotClient _botClient;
         protected readonly Update _update;
 
-        public CommandHandlerBase(ITelegramBotClient botClient, Update update, string connectionstring)
+        protected CommandHandlerBase(ITelegramBotClient botClient, Update update, string connectionString)
         {
             _botClient = botClient;
             _update = update;
-            _connectionString = connectionstring;
+            _connectionString = connectionString;
         }
 
         protected UserCommandState CurrentStateCommand => CommandStateManager.GetCommand(_update.Message.Chat.Id);
