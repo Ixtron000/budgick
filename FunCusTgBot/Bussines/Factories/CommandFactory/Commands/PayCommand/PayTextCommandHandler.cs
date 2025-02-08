@@ -2,16 +2,17 @@
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
-namespace Bussines.Factories.CommandFactory.Commands.BuyCommand
+namespace Bussines.Factories.CommandFactory.Commands.PayCommand
 {
-    public class BuyTextCommandHandler : CommandHandlerBase
+    public class PayTextCommandHandler : CommandHandlerBase
     {
-        public BuyTextCommandHandler(ITelegramBotClient botClient, Update update, string connectionString) :
+        public PayTextCommandHandler(ITelegramBotClient botClient, Update update, string connectionString) :
             base(botClient, update, connectionString)
         {
         }
 
-        public override async Task ExecuteAsync()
+
+        public async override Task ExecuteAsync()
         {
             var callbackHandler = CallbackHandlerFactory.GetHandler(_botClient, _update, _connectionString);
             await callbackHandler.ExecuteAsync();

@@ -102,7 +102,7 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
 
                         try
                         {
-                            using (var connection = new MySqlConnection("Server=127.0.0.1;Database=budguck;User=root;Password=;"))
+                            using (var connection = new MySqlConnection(ConnectionString))
                             {
                                 await connection.OpenAsync();
 
@@ -197,6 +197,11 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                                                 $"💚Ваш баланс: {balance} ₽\n" +
                                                 $"💛Требуется к оплате: {formattedAmountToDeduct} ₽\n\n" +
                                                 $"💥Для пополнения баланса напишите /balance!", replyMarkup: inlineKeyboard);
+
+                                            // удаляем команду при завершении оформления заказа.
+                                            // удалять обязательно, потому что словарь можно наполниться до огромных размеров
+                                            CommandStateManager.DeleteCommand(UserId);
+                                            return;
                                         }
                                     }
                                     else

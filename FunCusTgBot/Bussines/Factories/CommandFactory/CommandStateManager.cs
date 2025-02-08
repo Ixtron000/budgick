@@ -45,7 +45,10 @@ namespace Bussines.Factories.CommandFactory
 
         public static void DeleteCommand(long userId)
         {
-            _userCommandStates.Remove(userId);
+            if (_userCommandStates.TryGetValue(userId, out var command))
+            {
+                _userCommandStates.Remove(userId);
+            }
         }
     }
 }

@@ -30,14 +30,32 @@ namespace TgBot.Extensions
                 .Build();
 
             // Получаем токен
-            string connectionString = configuration["TelegramBot:Token"];
+            string token = configuration["TelegramBot:Token"];
 
-            if (string.IsNullOrEmpty(connectionString))
+            if (string.IsNullOrEmpty(token))
             {
                 throw new ArgumentException("Токен тг бота отсутствует в файле конфигурации.");
             }
 
-            return connectionString;
+            return token;
+        }
+
+        public static long GetAdminUserId()
+        {
+            // Загружаем конфигурацию
+            var configuration = new ConfigurationBuilder()
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .Build();
+
+            // Получаем строку подключения
+            string userId = configuration.GetConnectionString("TelegramBot:AdminUserId");
+
+            if (string.IsNullOrEmpty(userId))
+            {
+                throw new ArgumentException("UserId админа отсутствует в файле конфигурации.");
+            }
+
+            return long.Parse(userId);
         }
     }
 }

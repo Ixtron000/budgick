@@ -40,6 +40,10 @@ namespace Bussines.Factories.CommandFactory
                         {
                             commandhandler = new BuyTextCommandHandler(botClient, update, connectionString);
                         }
+                        else if (commandName == "pay")
+                        {
+                            commandhandler = new BuyTextCommandHandler(botClient, update, connectionString);
+                        }
                         else
                         {
                             return null;

@@ -2,9 +2,11 @@
 using Bussines.Factories.CallbackFactory;
 using Bussines.Factories.CommandFactory;
 using Infrastructure.Interfaces;
+using Infrastructure.Models.FreeKassa;
 using MySql.Data.MySqlClient;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Org.BouncyCastle.Bcpg;
 using System.Security.Cryptography;
 using System.Text;
 using Telegram.Bot;
@@ -13,111 +15,7 @@ using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 using TgBot;
 using TgBot.Extensions;
-
-
-class FreeCassa
-{
-    private const int ShopId = 53325;
-    private const string ApiKey = "f9009b140a7e56a63f0f4235d71baed8"; // Replace with your actual API key
-    private const string Email = "vitcher20u@gmail.com";
-    private const string IpAddress = "89.111.141.136";
-
-    public async Task<Dictionary<string, object>> CreateLinkForPayAsync(string userName, double price)
-    {
-        try
-        {
-            var data = new Dictionary<string, object>
-            {
-                { "shopId", ShopId },
-                { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
-                { "i", 8 },
-                { "email", Email },
-                { "ip", IpAddress },
-                { "paymentId", userName },
-                { "amount", price },
-                { "currency", "RUB" },
-            };
-
-            var signature = CreateHmacSha256Signature(data);
-            data["signature"] = signature;
-
-            var request = JsonConvert.SerializeObject(data);
-            var result = await SendRequestAsync("https://api.freekassa.com/v1/orders/create", request);
-            var response = JsonConvert.DeserializeObject<Dictionary<string, object>>(result);
-
-            return response;
-        }
-        catch (HttpRequestException ex)
-        {
-            Console.WriteLine($"HTTP Request Exception: {ex.Message}");
-            return null;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"General Exception: {ex.Message}");
-            return null;
-        }
-    }
-
-    public async Task<Dictionary<string, object>> GetOrderAsync(string orderId)
-    {
-        try
-        {
-            var data = new Dictionary<string, object>
-            {
-                { "shopId", ShopId },
-                { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
-                { "orderId", orderId }
-            };
-
-            var signature = CreateHmacSha256Signature(data);
-            data["signature"] = signature;
-
-            var request = JsonConvert.SerializeObject(data);
-            var result = await SendRequestAsync("https://api.freekassa.com/v1/orders", request);
-            var response = JsonConvert.DeserializeObject<Dictionary<string, object>>(result);
-
-            return response;
-        }
-        catch (HttpRequestException ex)
-        {
-            Console.WriteLine($"HTTP Request Exception: {ex.Message}");
-            return null;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"General Exception: {ex.Message}");
-            return null;
-        }
-    }
-
-    private string CreateHmacSha256Signature(Dictionary<string, object> data)
-    {
-        var sortedData = data.OrderBy(d => d.Key).ToDictionary(d => d.Key, d => d.Value);
-        var signData = string.Join("|", sortedData.Values);
-
-        using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(ApiKey)))
-        {
-            var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(signData));
-            return BitConverter.ToString(hash).Replace("-", "").ToLower();
-        }
-    }
-
-    private async Task<string> SendRequestAsync(string url, string json)
-    {
-        using (var client = new HttpClient())
-        {
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            client.DefaultRequestHeaders.Add("Authorization", "Bearer your_token_if_any");
-            var response = await client.PostAsync(url, content);
-            response.EnsureSuccessStatusCode();
-
-            var responseContent = await response.Content.ReadAsStringAsync();
-            return System.Text.RegularExpressions.Regex.Unescape(responseContent);
-        }
-    }
-}
-
+using Bussines.Services;
 
 class Program
 {
@@ -211,50 +109,18 @@ class Program
                     if (reader.Read())
                     {
                         decimal balance = reader.GetDecimal("balance");
-                        var freeCassa = new FreeCassa();
-                        var response = await freeCassa.CreateLinkForPayAsync(id.ToString(), 500);
+                        var freeCassa = new FreeKassaService();
 
-                        if (response != null && response.ContainsKey("location"))
+                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
                         {
-                            string pay_500 = response["location"].ToString();
-                            var response_1000 = await freeCassa.CreateLinkForPayAsync(id.ToString(), 1000);
-
-                            if (response_1000 != null && response_1000.ContainsKey("location"))
-                            {
-                                string pay_1000 = response_1000["location"].ToString();
-
-
-                                var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                                {
-                                    new[]
-                                    {
-                                        InlineKeyboardButton.WithUrl("Оплатить 500 руб.", pay_500),
-                                        InlineKeyboardButton.WithUrl("Оплатить 1000 руб.", pay_1000)
-                                    },
-                                    new[]
-                                    {
-
-                                        InlineKeyboardButton.WithCallbackData("🔙 Главная", "main")
-                                    }
-                                });
-                                await botClient.SendTextMessageAsync(
-                                    chatId,
-                                    $"🖐Здравствуйте, {name}! \n Ваш ID:  {id} \n⌛Время (МСК):  {TimeZoneInfo.ConvertTime(DateTime.Now, TimeZoneInfo.FindSystemTimeZoneById("Russian Standard Time"))}. \n💚Ваш баланс: {balance} руб.\n\n 🧡Для пополнения выберите сумму ниже!\n\n Для пополнения на другую сумму напишите /pay сумма",
-                                    replyMarkup: inlineKeyboard
-                                );
-
-                            }
-                            else
-                            {
-                                // Log or handle the case where response_1000 is null or doesn't contain "location"
-                                await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при создании ссылки для оплаты 1000 руб.");
-                            }
-                        }
-                        else
-                        {
-                            // Log or handle the case where response is null or doesn't contain "location"
-                            await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при создании ссылки для оплаты 500 руб.");
-                        }
+                            new[] { InlineKeyboardButton.WithCallbackData("оплатить", $"pay") },
+                            new[] { InlineKeyboardButton.WithCallbackData("🔙 Главная", "main") }
+                        });
+                        await botClient.SendTextMessageAsync(
+                            chatId,
+                            $"🖐Здравствуйте, {name}! \n Ваш ID:  {id} \n⌛Время (МСК):  {TimeZoneInfo.ConvertTime(DateTime.Now, TimeZoneInfo.FindSystemTimeZoneById("Russian Standard Time"))}. \n💚Ваш баланс: {balance} руб.\n\n 🧡Для пополнения выберите сумму ниже!\n\n Для пополнения на другую сумму напишите /pay сумма",
+                            replyMarkup: inlineKeyboard
+                        );
                     }
                     else
                     {
@@ -265,49 +131,7 @@ class Program
         }
     }
 
-    private static async Task CreateOrder(ITelegramBotClient botClient, long chatId, decimal price)
-    {
-        try
-        {
-            if (price < 500) { await botClient.SendTextMessageAsync(chatId, "💥 Внимание сумма платежа не может быть меньше, чем 500 рублей!"); }
-            else
-            {
-                var freeCassa = new FreeCassa();
-                var response = await freeCassa.CreateLinkForPayAsync(chatId.ToString(), (double)price);
-                var orderId = response["orderId"].ToString();
-                var orderResponse = await freeCassa.GetOrderAsync(orderId);
-                if (orderResponse != null && orderResponse.ContainsKey("orders"))
-                {
-                    var orders = JsonConvert.SerializeObject(orderResponse["orders"]);
-                    var ordersArray = JArray.Parse(orderResponse["orders"].ToString());
-                    foreach (var order in ordersArray)
-                    {
-                        var status = "";
-                        if ((int)order["status"] == 0) { status = "Новый"; } else if ((int)order["status"] == 1) { status = "Оплачен"; } else if ((int)order["status"] == 8) { status = "Ошибка"; } else if ((int)order["status"] == 9) { status = "Отмена"; }
-                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                        {
-                        new[]
-                        {
-                            InlineKeyboardButton.WithUrl($"Оплатить {price} руб.", response["location"].ToString())
-                        },
-                        new[]
-                        {
-                            InlineKeyboardButton.WithCallbackData("✨ Проверить ✨", "check " + order["fk_order_id"])
-                        }
-                    });
-                        await botClient.SendTextMessageAsync(
-                            chatId,
-                            $"✅Для пополнения вашего баланса на {price} рублей, перейдите по следующей ссылке.\n\n 🔴Информация о платеже №{order["fk_order_id"]}\r\n  💰Сумма: {order["amount"]} \n  ⏳Дата: {order["date"]} \n  🔵Статус платежа: {status}\n\n 🔴После опалты нажмите кнопку провертить!",
-                            replyMarkup: inlineKeyboard
-                        );
-                        Console.WriteLine($"Order ID: {order["fk_order_id"]}, Status: {order["status"]}");
-                    }
-                }
-
-            }
-        }
-        catch { }
-    }
+    
     private static async Task ErrorHandler(ITelegramBotClient client, Exception exception, CancellationToken token)
     {
         Console.WriteLine($"Произошла ошибка: {exception.Message}");
@@ -315,6 +139,8 @@ class Program
     // /start
     private static async Task<string> Start(ITelegramBotClient botClient, long chatId, string name, Update update = null)
     {
+        CommandStateManager.DeleteCommand(chatId);
+
         // Приветственное сообщение
         string welcomeMessage = "Здравствуйте! 🎉\n\n" +
             "Рады приветствовать вас в нашем сервисе. Мы здесь, чтобы помочь вам масштабировать ваш бизнес и добиться успешного продвижения в социальных сетях. 🚀\n\n" +
@@ -738,17 +564,6 @@ class Program
                     {
                         await GetUserBalance(chatId, botClient, message.From.FirstName, message.From.Id);
                     }
-                    else if (messageText.StartsWith("/pay"))
-                    {
-                        var parts = messageText.Split(' ');
-                        if (parts.Length < 2)
-                        {
-                            await botClient.SendTextMessageAsync(chatId, "Вы не ввели сумму");
-                            return;
-                        }
-                        decimal value = decimal.Parse(parts[1]);
-                        CreateOrder(botClient, chatId, value);
-                    }
                     else if (messageText.StartsWith("/pacy_add"))
                     {
                         if (message.From.Id == 1416004677)
@@ -982,7 +797,7 @@ class Program
                                     return;
                                 }
                                 var orderId = parts[1];
-                                var freeCassa = new FreeCassa();
+                                var freeCassa = new FreeKassaService();
                                 var orderResponse = await freeCassa.GetOrderAsync(orderId);
                                 if (orderResponse != null && orderResponse.ContainsKey("orders"))
                                 {

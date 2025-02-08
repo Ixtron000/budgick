@@ -29,6 +29,10 @@ namespace Bussines.Factories.CallbackFactory
                     {
                         return new BuyCallbackHandler(botClient, update, connectionString);
                     }
+                case "pay":
+                    {
+                        return new PayCallbackHandler(botClient, update, connectionString);
+                    }
                 default:
                     return null;
             }

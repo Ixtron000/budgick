@@ -15,9 +15,8 @@ namespace Bussines.Factories.CommandFactory.Commands.PCommand
             var messageText = _update.Message.Caption;
             var messagePhoto = _update.Message.Photo;
             var chatId = _update.Message.Chat.Id;
-            var isAdmin = _update.Message.From.Id == 1416004677; // Проверка на администратора
 
-            if (isAdmin) // Проверка на администратора
+            if (IsAdminUser) // Проверка на администратора
             {
                 var messageContent = messageText.Substring(2).Trim(); // Получаем все после '/p'
 

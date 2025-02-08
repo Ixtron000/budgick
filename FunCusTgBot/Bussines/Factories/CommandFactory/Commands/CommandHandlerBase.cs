@@ -1,5 +1,6 @@
 ﻿using Infrastructure.Interfaces;
 using Infrastructure.Models;
+using Microsoft.Extensions.Configuration;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -20,6 +21,8 @@ namespace Bussines.Factories.CommandFactory.Commands
         }
 
         protected UserCommandState CurrentStateCommand => CommandStateManager.GetCommand(_update.Message.Chat.Id);
+
+        protected bool IsAdminUser => _update.Message.Chat.Id == 6457054702;
 
         public abstract Task ExecuteAsync();
     }

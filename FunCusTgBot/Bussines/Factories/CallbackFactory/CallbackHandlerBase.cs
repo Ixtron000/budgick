@@ -45,12 +45,7 @@ namespace Bussines.Factories.CallbackFactory
             var userId = _update.GetUserId();
             if (!CommandStateManager.IsExistsState(userId))
             {
-                var command = new BuyCommandModel()
-                {
-                    State = BuyCommandState.None
-                };
-
-                var userStateCommand = UserCommandState.Create(userId, _update.GetCommand(), command);
+                var userStateCommand = UserCommandState.Create(userId, _update.GetCommand());
                 CommandStateManager.AddCommand(userStateCommand);
             }
         }
