@@ -1,23 +1,21 @@
-﻿using Newtonsoft.Json.Linq;
+﻿using Autofac;
+using Bussines.Factories.CommandFactory;
+using Infrastructure.Enums;
+using Infrastructure.Models.FreeKassa;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
-using Bussines.Services;
-using Bussines.Factories.CommandFactory;
-using Org.BouncyCastle.Math;
-using Infrastructure.Enums;
-using Infrastructure.Models.FreeKassa;
 
 namespace Bussines.Factories.CallbackFactory.Callbacks
 {
     public class PayCallbackHandler : CallbackHandlerBase
     {
         private readonly HttpClient HttpClient = new HttpClient();
-        private readonly FreeKassaService _freeKassaService = new FreeKassaService();
 
-        public PayCallbackHandler(ITelegramBotClient botClient, Update update, string connectionString) :
-            base(botClient, update, connectionString)
+        public PayCallbackHandler(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString) :
+            base(scope, botClient, update, connectionString)
         {
         }
 
@@ -35,8 +33,7 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                 if (CurrentStateCommand.PayCommand.State is PayCommandState.Price)
                 {
                     var msg = "Формирование способа оплаты.";
-
-                    // параметр переданный в колбеке
+                    
                     var priceStr = Message;
                     if (decimal.TryParse(priceStr, out decimal price))
                     {
@@ -129,7 +126,7 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
         {
             var response = await _freeKassaService.CreateLinkForPayAsync(UserId, (double)price, paySystemId);
 
-            var orderId = response["orderId"].ToString();
+            var orderId = long.Parse(response["orderId"].ToString());
             var orderResponse = await _freeKassaService.GetOrderAsync(orderId);
             if (orderResponse != null && orderResponse.ContainsKey("orders"))
             {
@@ -137,19 +134,18 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                 var ordersArray = JArray.Parse(orderResponse["orders"].ToString());
                 foreach (var order in ordersArray)
                 {
-                    var status = "";
-                    if ((int)order["status"] == 0) { status = "Новый"; } else if ((int)order["status"] == 1) { status = "Оплачен"; } else if ((int)order["status"] == 8) { status = "Ошибка"; } else if ((int)order["status"] == 9) { status = "Отмена"; }
+                    var status = GetOrderStatus((int)order["status"]);
                     var inlineKeyboard = new InlineKeyboardMarkup(new[]
                     {
-                                    new[]
-                                    {
-                                        InlineKeyboardButton.WithUrl($"Оплатить {price} руб.", response["location"].ToString())
-                                    },
-                                    new[]
-                                    {
-                                        InlineKeyboardButton.WithCallbackData("✨ Проверить ✨", "check " + order["fk_order_id"])
-                                    }
-                                });
+                        new[]
+                        {
+                            InlineKeyboardButton.WithUrl($"Оплатить {price} руб.", response["location"].ToString())
+                        },
+                        new[]
+                        {
+                            InlineKeyboardButton.WithCallbackData("✨ Проверить ✨", "check " + order["fk_order_id"])
+                        }
+                    });
 
                     await _botClient.SendMessage(
                         UserId,
@@ -159,6 +155,28 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                     Console.WriteLine($"Order ID: {order["fk_order_id"]}, Status: {order["status"]}");
                 }
             }
+        }
+
+        private string GetOrderStatus(int orderState)
+        {
+            if (orderState == 0)
+            {
+                return "Новый";
+            }
+            else if (orderState == 1)
+            {
+                return "Оплачен";
+            }
+            else if (orderState == 8)
+            {
+                return "Ошибка";
+            }
+            else if (orderState == 9)
+            {
+                return "Отмена";
+            }
+
+            return string.Empty;
         }
     }
 }

@@ -1,6 +1,8 @@
-﻿using Bussines.Commands;
+﻿using Autofac;
+using Bussines.Commands;
 using Bussines.Extensions;
 using Bussines.Factories.CommandFactory.Commands.BuyCommand;
+using Bussines.Factories.CommandFactory.Commands.CheckCommand;
 using Bussines.Factories.CommandFactory.Commands.PCommand;
 using Infrastructure.Interfaces;
 using Telegram.Bot;
@@ -11,7 +13,7 @@ namespace Bussines.Factories.CommandFactory
 {
     public static class CommandTypeHandlerFactory
     {
-        public static ITypeCommandHandler GetHandler(ITelegramBotClient botClient, Update update, string connectionString)
+        public static ITypeCommandHandler GetHandler(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString)
         {
             ICommandHandler commandhandler = null;
             var messageType = update.Message.Type;
@@ -34,15 +36,19 @@ namespace Bussines.Factories.CommandFactory
                     {
                         if (commandName == "p")
                         {
-                            commandhandler = new PTextCommandHandler(botClient, update, connectionString);
+                            commandhandler = new PTextCommandHandler(scope, botClient, update, connectionString);
                         }
                         else if (commandName == "buy")
                         {
-                            commandhandler = new BuyTextCommandHandler(botClient, update, connectionString);
+                            commandhandler = new BuyTextCommandHandler(scope, botClient, update, connectionString);
                         }
                         else if (commandName == "pay")
                         {
-                            commandhandler = new BuyTextCommandHandler(botClient, update, connectionString);
+                            commandhandler = new BuyTextCommandHandler(scope, botClient, update, connectionString);
+                        }
+                        else if (commandName == "check")
+                        {
+                            commandhandler = new CheckTextCommandModel(scope, botClient, update, connectionString);
                         }
                         else
                         {
@@ -55,7 +61,7 @@ namespace Bussines.Factories.CommandFactory
                     {
                         if (commandName == "p")
                         {
-                            commandhandler = new PPhotoCommandHandler(botClient, update, connectionString);
+                            commandhandler = new PPhotoCommandHandler(scope, botClient, update, connectionString);
                         }
                         else
                         {

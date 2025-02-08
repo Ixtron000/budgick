@@ -1,13 +1,14 @@
 ﻿using Telegram.Bot;
 using Telegram.Bot.Types;
 using MySql.Data.MySqlClient;
+using Autofac;
 
 namespace Bussines.Factories.CommandFactory.Commands.PCommand
 {
     public class PPhotoCommandHandler : CommandHandlerBase
     {
-        public PPhotoCommandHandler(ITelegramBotClient botClient, Update update, string connectionString) :
-            base(botClient, update, connectionString)
+        public PPhotoCommandHandler(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString) : 
+            base(scope, botClient, update, connectionString)
         { }
 
         public override async Task ExecuteAsync()

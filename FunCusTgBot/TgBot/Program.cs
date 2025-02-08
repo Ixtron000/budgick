@@ -26,7 +26,6 @@ class Program
 
     private static ILifetimeScope _scope;
 
-    private static IUserMessageService _userMessageService;
     private static IBotClientService _botClientService;
 
     static async Task Main(string[] args)
@@ -42,7 +41,6 @@ class Program
         var container = builder.Build();
 
         _scope = container.BeginLifetimeScope();
-        _userMessageService = _scope.Resolve<IUserMessageService>();
         _botClientService = _scope.Resolve<IBotClientService>();
 
         BotClient.StartReceiving(UpdateHandler, ErrorHandler, cancellationToken: CancellationToken.Token);
@@ -50,16 +48,14 @@ class Program
         Console.WriteLine("Бот запущен.");
         Console.ReadLine();
 
-
         CancellationToken.Cancel();
-
     }
 
     private static TelegramBotClient BotClient => (TelegramBotClient)_botClientService.GetTelegramBotClient();
 
     private static void UpdateUserBalance(string orderId, decimal amount)
     {
-        using (var connection = new MySqlConnection("Server=127.0.0.1;Database=test;User=root;Password=;"))
+        using (var connection = new MySqlConnection(ConnectionString))
         {
             connection.Open();
             string query = "SELECT id, balance FROM users WHERE id = @orderId";
@@ -428,7 +424,7 @@ class Program
         {
             if (update.Message is { } message)
             {
-                var commandHandler = CommandTypeHandlerFactory.GetHandler(botClient, update, ConnectionString);
+                var commandHandler = CommandTypeHandlerFactory.GetHandler(_scope, botClient, update, ConnectionString);
 
                 if (commandHandler is not null)
                 {
@@ -652,7 +648,7 @@ class Program
             }
             if (update.CallbackQuery is { } callbackQuery)
             {
-                var callbackHandler = CallbackHandlerFactory.GetHandler(botClient, update, ConnectionString);
+                var callbackHandler = CallbackHandlerFactory.GetHandler(_scope, botClient, update, ConnectionString);
 
                 if (callbackHandler is not null)
                 {
@@ -789,78 +785,8 @@ class Program
                             await SendFilteredItemsAsync("music", chatId, botClient, update);
                             break;
                         default:
-                            if (callbackData.StartsWith("check"))
-                            {
-                                var parts = callbackData.Split(' ');
-                                if (parts.Length < 2)
-                                {
-                                    return;
-                                }
-                                var orderId = parts[1];
-                                var freeCassa = new FreeKassaService();
-                                var orderResponse = await freeCassa.GetOrderAsync(orderId);
-                                if (orderResponse != null && orderResponse.ContainsKey("orders"))
-                                {
-                                    var orders = JsonConvert.SerializeObject(orderResponse["orders"]);
-                                    var ordersArray = JArray.Parse(orderResponse["orders"].ToString());
-                                    foreach (var order in ordersArray)
-                                    {
-                                        var statusMessage = "Платеж не оплачен❌"; // Default message for unsuccessful payment
-                                        if ((int)order["status"] == 1)
-                                        {
-                                            using (var connection = new MySqlConnection(ConnectionString))
-                                            {
-                                                await connection.OpenAsync();
-
-                                                // Сначала получаем текущий баланс пользователя
-                                                string selectQuery = "SELECT balance FROM users WHERE chat_id = @chatId";
-                                                decimal currentBalance = 0;
-                                                using (var selectCommand = new MySqlCommand(selectQuery, connection))
-                                                {
-                                                    selectCommand.Parameters.AddWithValue("@chatId", callbackQuery.From.Id);
-                                                    var result = await selectCommand.ExecuteScalarAsync();
-                                                    if (result != null)
-                                                    {
-                                                        currentBalance = Convert.ToDecimal(result);
-                                                    }
-                                                }
-
-                                                // Плюсуем новый платеж к текущему балансу
-                                                decimal newBalance = currentBalance + (decimal)order["amount"];
-
-                                                // Обновляем баланс в базе данных
-                                                string updateQuery = "UPDATE users SET balance = @newBalance WHERE chat_id = @chatId";
-                                                using (var updateCommand = new MySqlCommand(updateQuery, connection))
-                                                {
-                                                    updateCommand.Parameters.AddWithValue("@newBalance", newBalance);
-                                                    updateCommand.Parameters.AddWithValue("@chatId", callbackQuery.From.Id);
-                                                    await updateCommand.ExecuteNonQueryAsync();
-                                                }
-                                            }
-                                            statusMessage = "Платеж был зачислен💚"; // Message for successful payment
-                                        }
-
-                                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                                        {
-                                            new[]
-                                            {
-                                                InlineKeyboardButton.WithCallbackData("Главная", "main")
-                                            }
-                                        });
-                                        await botClient.SendTextMessageAsync(
-                                            chatId,
-                                            statusMessage,
-                                            replyMarkup: inlineKeyboard
-                                        );
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                await botClient.SendTextMessageAsync(chatId, "⚠️ Неизвестная команда.");
-                            }
+                                await botClient.SendMessage(chatId, "⚠️ Неизвестная команда.");
                             break;
-
                     }
                 }
             }

@@ -13,13 +13,6 @@ namespace Bussines.Services
             _botClient = botClient;
         }
 
-        public async Task<Update> GetLastMessage()
-        {
-            var updates = await _botClient.GetUpdatesAsync();
-            var lastUpdate = updates.OrderByDescending(t => t.Message.Date).ToList();
-            return lastUpdate[1];
-        }
-
         public object GetTelegramBotClient()
         {
             return _botClient;

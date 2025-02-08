@@ -1,4 +1,5 @@
-﻿using Bussines.Extensions;
+﻿using Autofac;
+using Bussines.Extensions;
 using Bussines.Factories.CallbackFactory.Callbacks;
 using Bussines.Factories.CommandFactory;
 using Infrastructure.Interfaces;
@@ -9,7 +10,7 @@ namespace Bussines.Factories.CallbackFactory
 {
     public static class CallbackHandlerFactory
     {
-        public static ICallbackHandler GetHandler(ITelegramBotClient botClient, Update update, string connectionString)
+        public static ICallbackHandler GetHandler(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString)
         {
             var userId = update.GetUserId();
             var commandName = string.Empty;
@@ -27,11 +28,15 @@ namespace Bussines.Factories.CallbackFactory
             {
                 case "buy":
                     {
-                        return new BuyCallbackHandler(botClient, update, connectionString);
+                        return new BuyCallbackHandler(scope, botClient, update, connectionString);
                     }
                 case "pay":
                     {
-                        return new PayCallbackHandler(botClient, update, connectionString);
+                        return new PayCallbackHandler(scope, botClient, update, connectionString);
+                    }
+                case "check":
+                    {
+                        return new CheckCallbackHandler(scope, botClient, update, connectionString);
                     }
                 default:
                     return null;

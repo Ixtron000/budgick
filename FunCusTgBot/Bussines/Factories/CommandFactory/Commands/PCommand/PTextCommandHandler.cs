@@ -1,4 +1,5 @@
-﻿using MySql.Data.MySqlClient;
+﻿using Autofac;
+using MySql.Data.MySqlClient;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -6,8 +7,8 @@ namespace Bussines.Factories.CommandFactory.Commands.PCommand
 {
     public class PTextCommandHandler : CommandHandlerBase
     {
-        public PTextCommandHandler(ITelegramBotClient botClient, Update update, string connectionString) :
-            base(botClient, update, connectionString)
+        public PTextCommandHandler(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString) :
+            base(scope, botClient, update, connectionString)
         { }
 
         public override async Task ExecuteAsync()

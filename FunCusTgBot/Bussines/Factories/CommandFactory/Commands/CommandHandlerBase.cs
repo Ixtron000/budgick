@@ -1,4 +1,5 @@
-﻿using Infrastructure.Interfaces;
+﻿using Autofac;
+using Infrastructure.Interfaces;
 using Infrastructure.Models;
 using Microsoft.Extensions.Configuration;
 using Telegram.Bot;
@@ -10,11 +11,13 @@ namespace Bussines.Factories.CommandFactory.Commands
     {
         protected readonly string _connectionString;
 
+        protected readonly ILifetimeScope _scope;
         protected readonly ITelegramBotClient _botClient;
         protected readonly Update _update;
 
-        protected CommandHandlerBase(ITelegramBotClient botClient, Update update, string connectionString)
+        protected CommandHandlerBase(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString)
         {
+            _scope = scope;
             _botClient = botClient;
             _update = update;
             _connectionString = connectionString;

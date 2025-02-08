@@ -1,4 +1,5 @@
-﻿using Bussines.Factories.CommandFactory;
+﻿using Autofac;
+using Bussines.Factories.CommandFactory;
 using Infrastructure.Enums;
 using MySql.Data.MySqlClient;
 using Newtonsoft.Json.Linq;
@@ -12,8 +13,8 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
     {
         private readonly HttpClient HttpClient = new HttpClient();
 
-        public BuyCallbackHandler(ITelegramBotClient botClient, Update update, string connectionString) :
-            base (botClient, update, connectionString)
+        public BuyCallbackHandler(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString) :
+            base (scope, botClient, update, connectionString)
         {
         }
 
@@ -234,11 +235,11 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                 endMsg = "Произошла ошибка. 😔";
             }
 
+            await _botClient.SendMessage(UserId, endMsg, replyMarkup: keyBrd);
+
             // удаляем команду при завершении оформления заказа.
             // удалять обязательно, потому что словарь можно наполниться до огромных размеров
             CommandStateManager.DeleteCommand(UserId);
-
-            await _botClient.SendMessage(UserId, endMsg, replyMarkup: keyBrd);
         }
 
         public static bool IsValidUrl(string url)

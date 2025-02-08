@@ -103,16 +103,16 @@ namespace Bussines.Services
             }
         }
 
-        public async Task<Dictionary<string, object>> GetOrderAsync(string orderId)
+        public async Task<Dictionary<string, object>> GetOrderAsync(long orderId)
         {
             try
             {
                 var data = new Dictionary<string, object>
-            {
-                { "shopId", ShopId },
-                { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
-                { "orderId", orderId }
-            };
+                {
+                    { "shopId", ShopId },
+                    { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
+                    { "orderId", orderId }
+                };
 
                 var signature = CreateHmacSha256Signature(data);
                 data["signature"] = signature;

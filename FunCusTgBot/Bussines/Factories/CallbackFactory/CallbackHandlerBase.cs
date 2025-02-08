@@ -1,10 +1,10 @@
-﻿using Bussines.Extensions;
+﻿using Autofac;
+using Bussines.Extensions;
 using Bussines.Factories.CommandFactory;
-using Infrastructure.Commands;
-using Infrastructure.Enums;
+using Bussines.Services;
+using DataAccess.Interfaces;
 using Infrastructure.Interfaces;
 using Infrastructure.Models;
-using Microsoft.AspNetCore.Identity;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -12,13 +12,17 @@ namespace Bussines.Factories.CallbackFactory
 {
     public abstract class CallbackHandlerBase : ICallbackHandler
     {
+        protected readonly FreeKassaService _freeKassaService = new FreeKassaService();
+        protected readonly IUserRepository _userRepository;
         protected readonly ITelegramBotClient _botClient;
         protected readonly Update _update;
 
-        protected CallbackHandlerBase(ITelegramBotClient botClient, Update update, string connectionString)
+        protected CallbackHandlerBase(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString)
         {
             _botClient = botClient;
             _update = update;
+
+            _userRepository = scope.Resolve<IUserRepository>();
 
             InitCommandState();
 
