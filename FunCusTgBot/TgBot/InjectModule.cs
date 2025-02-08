@@ -1,11 +1,8 @@
 ﻿using Autofac;
 using Bussines.Services;
 using DataAccess;
-using DataAccess.Interfaces;
-using DataAccess.Repositories;
 using Infrastructure.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Telegram.Bot;
 using TgBot.Extensions;
 
@@ -36,11 +33,7 @@ namespace TgBot
                 return new AppDbContext(optionsBuilder.Options);
             }).AsSelf().InstancePerLifetimeScope();
 
-            // Регистрируем репозитории
-            builder.RegisterType<UserMessageRepository>().As<IUserMessageRepository>().InstancePerLifetimeScope();
-
             // Регистрируем сервисы
-            builder.RegisterType<UserMessageService>().As<IUserMessageService>().InstancePerLifetimeScope();
             builder.RegisterType<BotClientService>().As<IBotClientService>().InstancePerLifetimeScope();
         }
     }

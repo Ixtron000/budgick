@@ -15,10 +15,10 @@ namespace Bussines.Services
         public async Task<CurrenciesResponse> GetCurrencies()
         {
             var data = new Dictionary<string, object>
-        {
-            { "shopId", ShopId },
-            { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
-        };
+            {
+                { "shopId", ShopId },
+                { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
+            };
 
             var signature = CreateHmacSha256Signature(data);
             data["signature"] = signature;
@@ -26,13 +26,6 @@ namespace Bussines.Services
             var request = JsonConvert.SerializeObject(data);
             var resultJson = await SendRequestAsync("https://api.freekassa.com/v1/currencies", request);
             var result = JsonConvert.DeserializeObject<CurrenciesResponse>(resultJson.jsonResponse);
-
-            foreach (var currency in result.Currencies)
-            {
-                Console.WriteLine($"Currency: {currency.Name} ({currency.CurrencyCode})");
-                Console.WriteLine($"Limits: {currency.Limits.Min} - {currency.Limits.Max}");
-                Console.WriteLine($"Fee (Merchant): {currency.Fee.Merchant}%");
-            }
 
             return result;
         }
@@ -44,10 +37,10 @@ namespace Bussines.Services
             foreach (var currency in currencies)
             {
                 var data = new Dictionary<string, object>
-            {
-                { "shopId", ShopId },
-                { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
-            };
+                {
+                    { "shopId", ShopId },
+                    { "nonce", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
+                };
 
                 var signature = CreateHmacSha256Signature(data);
                 data["signature"] = signature;
@@ -57,10 +50,6 @@ namespace Bussines.Services
                 if (resultResponse.isSuccess)
                 {
                     resultCurrency.Add(currency);
-                    Console.WriteLine($"isSuccess: {resultResponse.jsonResponse})");
-                    Console.WriteLine($"Currency: {currency.Name} ({currency.CurrencyCode})");
-                    Console.WriteLine($"Limits: {currency.Limits.Min} - {currency.Limits.Max}");
-                    Console.WriteLine($"Fee (Merchant): {currency.Fee.Merchant}%");
                 }
             }
 
