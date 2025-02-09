@@ -30,8 +30,29 @@ namespace Bussines.Services
             return result;
         }
 
+        private async Task SetCustomSettingsCurrency(Currency currencies)
+        {
+            if (currencies.Id == 36)
+            {
+                currencies.Limits.Min = 1000;
+            }
+            else if (currencies.Id == 6)
+            {
+                currencies.Limits.Min = 1000;
+            }
+            else if (currencies.Id == 13)
+            {
+                currencies.Limits.Min = 1000;
+            }
+        }
+
         public async Task<List<Currency>> GetAvailableCurrencies(List<Currency> currencies)
         {
+            foreach (var currency in currencies)
+            {
+                await SetCustomSettingsCurrency(currency);
+            }
+
             var resultCurrency = new List<Currency>();
 
             foreach (var currency in currencies)

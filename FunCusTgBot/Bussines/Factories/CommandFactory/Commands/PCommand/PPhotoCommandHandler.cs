@@ -16,8 +16,9 @@ namespace Bussines.Factories.CommandFactory.Commands.PCommand
             var messageText = _update.Message.Caption;
             var messagePhoto = _update.Message.Photo;
             var chatId = _update.Message.Chat.Id;
+            var isAdmin = await _userRepository.IsAdminAsync(chatId);
 
-            if (IsAdminUser)
+            if (isAdmin)
             {
                 string messageContent = string.Empty;
                 if (!string.IsNullOrEmpty(messageText))

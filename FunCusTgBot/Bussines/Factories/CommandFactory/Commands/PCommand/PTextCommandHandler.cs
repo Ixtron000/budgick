@@ -13,11 +13,12 @@ namespace Bussines.Factories.CommandFactory.Commands.PCommand
 
         public override async Task ExecuteAsync()
         {
-            var messageText = _update.Message.Caption;
+            var messageText = _update.Message.Text;
             var messagePhoto = _update.Message.Photo;
             var chatId = _update.Message.Chat.Id;
+            var isAdmin = await _userRepository.IsAdminAsync(chatId);
 
-            if (IsAdminUser) // Проверка на администратора
+            if (isAdmin) // Проверка на администратора
             {
                 var messageContent = messageText.Substring(2).Trim(); // Получаем все после '/p'
 

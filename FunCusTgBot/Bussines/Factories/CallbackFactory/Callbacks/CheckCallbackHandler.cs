@@ -1,14 +1,11 @@
 ﻿using Autofac;
-using Bussines.Services;
-using Newtonsoft.Json.Linq;
+using Bussines.Factories.CommandFactory;
+using Infrastructure.Enums;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
-using MySql.Data.MySqlClient;
-using Bussines.Factories.CommandFactory;
-using Infrastructure.Enums;
-using Mysqlx.Resultset;
 
 namespace Bussines.Factories.CallbackFactory.Callbacks
 {

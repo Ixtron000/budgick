@@ -25,49 +25,22 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
             {
                 if (CurrentStateCommand.PayCommand.State is PayCommandState.None)
                 {
-                    await _botClient.SendMessage(UserId, "Введите сумму");
-                    CurrentStateCommand.PayCommand.State = PayCommandState.Price;
-                    return;
-                }
-
-                if (CurrentStateCommand.PayCommand.State is PayCommandState.Price)
-                {
-                    var msg = "Формирование способа оплаты.";
-                    
-                    var priceStr = Message;
-                    if (decimal.TryParse(priceStr, out decimal price))
-                    {
-                        CurrentStateCommand.PayCommand.Price = price;
-                        CurrentStateCommand.PayCommand.State = PayCommandState.ChoosePayService;
-                        CommandStateManager.AddCommand(CurrentStateCommand);
-                    }
-                    else
-                    {
-                        msg = "Сумма указывается только в цифрах.";
-                        await _botClient.SendMessage(UserId, msg);
-                        return;
-                    }
-
-                    await _botClient.SendMessage(UserId, msg);
-                }
-
-                
-                if (CurrentStateCommand.PayCommand.State is PayCommandState.ChoosePayService)
-                {
-                    var availableCurrencies = await GetAvailableCurrencies(CurrentStateCommand.PayCommand.Price);
+                    await _botClient.SendMessage(UserId, "Подождите. Осуществляется создание способов оплаты...");
+                    var availableCurrencies = await GetAvailableCurrencies();
 
                     if (availableCurrencies.Count > 1)
                     {
                         var inlineKeyBoard = new InlineKeyboardMarkup();
                         foreach (var currency in availableCurrencies)
                         {
-                            inlineKeyBoard.AddNewRow(InlineKeyboardButton.WithCallbackData(currency.Name, $"pay {currency.Id}"));
+                            var buttonName = currency.Name + " от " + currency.Limits.Min;
+                            inlineKeyBoard.AddNewRow(InlineKeyboardButton.WithCallbackData(buttonName, $"pay {currency.Id}"));
                         }
 
                         inlineKeyBoard.AddNewRow(InlineKeyboardButton.WithCallbackData("🔙 Назад", "main"));
 
-                        await _botClient.SendMessage(UserId,"Выберите способ оплаты.", replyMarkup: inlineKeyBoard);
-                        CurrentStateCommand.PayCommand.State = PayCommandState.CreateOrder;
+                        await _botClient.SendMessage(UserId, "Выберите способ оплаты.", replyMarkup: inlineKeyBoard);
+                        CurrentStateCommand.PayCommand.State = PayCommandState.ChoosePayService;
                         return;
                     }
                     else
@@ -76,27 +49,49 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                     }
                 }
 
-                if (CurrentStateCommand.PayCommand.State is PayCommandState.CreateOrder)
+                if (CurrentStateCommand.PayCommand.State is PayCommandState.ChoosePayService)
                 {
                     var payServiceIdStr = Message.Split(" ")[1];
                     if (int.TryParse(payServiceIdStr, out int payServiceId))
                     {
                         CurrentStateCommand.PayCommand.PayServiceId = payServiceId;
+                        CurrentStateCommand.PayCommand.State = PayCommandState.Price;
                         CommandStateManager.AddCommand(CurrentStateCommand);
+                        await _botClient.SendMessage(UserId, "Укажите сумму.");
+                        return;
                     }
                     else
                     {
                         await _botClient.SendMessage(UserId, "Не выбран способ оплаты.");
                         return;
                     }
+                }
 
+                if (CurrentStateCommand.PayCommand.State is PayCommandState.Price)
+                {
+                    var priceStr = Message;
+                    if (decimal.TryParse(priceStr, out decimal price))
+                    {
+                        CurrentStateCommand.PayCommand.Price = price;
+                        CurrentStateCommand.PayCommand.State = PayCommandState.CreateOrder;
+                        CommandStateManager.AddCommand(CurrentStateCommand);
+                    }
+                    else
+                    {
+                        await _botClient.SendMessage(UserId, "Сумма указывается только в цифрах");
+                        return;
+                    }
+                }
+
+                if (CurrentStateCommand.PayCommand.State is PayCommandState.CreateOrder)
+                {
                     try
                     {
                         await CreateOrder(CurrentStateCommand.PayCommand.Price, CurrentStateCommand.PayCommand.PayServiceId);
                     }
                     catch (Exception ex)
                     {
-                        await _botClient.SendMessage(UserId, "Данный способ оплаты в данный момент недоступен.");
+                        await _botClient.SendMessage(UserId, "Данный способ оплаты недоступен либо указана неверная сумма.");
                         return;
                     }
                 }
@@ -117,9 +112,15 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
 
         private async Task<List<Currency>> GetAvailableCurrencies(decimal price)
         {
+            var availvablePaySystem = await GetAvailableCurrencies();
+            var result = availvablePaySystem.Where(c => c.Limits.Min <= price && price <= c.Limits.Max).ToList();
+            return result;
+        }
+
+        private async Task<List<Currency>> GetAvailableCurrencies()
+        {
             var currencies = await _freeKassaService.GetCurrencies();
-            var availvablePaySystem = await _freeKassaService.GetAvailableCurrencies(currencies.Currencies);
-            return availvablePaySystem.Where(c => c.Limits.Min <= price && price <= c.Limits.Max).ToList();
+            return await _freeKassaService.GetAvailableCurrencies(currencies.Currencies);
         }
 
         private async Task CreateOrder(decimal price, int paySystemId)
