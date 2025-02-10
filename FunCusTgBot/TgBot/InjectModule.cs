@@ -1,7 +1,6 @@
 ﻿using Autofac;
 using Bussines.Services;
 using DataAccess;
-using DataAccess.Entities;
 using DataAccess.Interfaces;
 using DataAccess.Repositories;
 using Infrastructure.Interfaces;
@@ -42,10 +41,11 @@ namespace TgBot
                .InstancePerLifetimeScope();
 
             builder.RegisterType<UserRepository>().As<IUserRepository>().InstancePerLifetimeScope();
+            builder.RegisterType<OrderRepository>().As<IOrderRepository>().InstancePerLifetimeScope();
 
             // Регистрируем сервисы
             builder.RegisterType<BotClientService>().As<IBotClientService>().InstancePerLifetimeScope();
-
+            builder.RegisterType<OrderService>().As<IOrderService>().InstancePerLifetimeScope();
         }
     }
 }

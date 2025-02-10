@@ -3,11 +3,11 @@ using Bussines.Factories.CallbackFactory;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
-namespace Bussines.Factories.CommandFactory.Commands.CheckCommand
+namespace Bussines.Factories.CommandFactory.Commands.OrdersCommand
 {
-    public class CheckTextCommandModel : CommandHandlerBase
+    public class OrdersTextCommandHandler : CommandHandlerBase
     {
-        public CheckTextCommandModel(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString) :
+        public OrdersTextCommandHandler(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString) :
             base(scope, botClient, update, connectionString)
         {
         }

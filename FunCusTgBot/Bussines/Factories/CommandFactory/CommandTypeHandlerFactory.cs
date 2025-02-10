@@ -3,6 +3,7 @@ using Bussines.Commands;
 using Bussines.Extensions;
 using Bussines.Factories.CommandFactory.Commands.BuyCommand;
 using Bussines.Factories.CommandFactory.Commands.CheckCommand;
+using Bussines.Factories.CommandFactory.Commands.OrdersCommand;
 using Bussines.Factories.CommandFactory.Commands.PCommand;
 using Infrastructure.Interfaces;
 using Telegram.Bot;
@@ -48,7 +49,11 @@ namespace Bussines.Factories.CommandFactory
                         }
                         else if (commandName == "check")
                         {
-                            commandhandler = new CheckTextCommandModel(scope, botClient, update, connectionString);
+                            commandhandler = new CheckTextCommandHandler(scope, botClient, update, connectionString);
+                        }
+                        else if (commandName == "myorders")
+                        {
+                            commandhandler = new OrdersTextCommandHandler(scope, botClient, update, connectionString);
                         }
                         else
                         {

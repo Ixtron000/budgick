@@ -1,6 +1,8 @@
 ﻿using Autofac;
 using Bussines.Factories.CommandFactory;
+using DataAccess.Entities;
 using Infrastructure.Enums;
+using Infrastructure.Models;
 using MySql.Data.MySqlClient;
 using Newtonsoft.Json.Linq;
 using Telegram.Bot;
@@ -153,18 +155,23 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                                                         $"📊 Начальное количество: {orderInfo["start_count"]}\n" +
                                                         $"📅 Дата: {orderInfo["date"]}\n" +
                                                         $"✅ Статус: {orderInfo["status"]}\n" +
-                                                        $"📦 Остаток: {orderInfo["remains"]}\n\n 💚 Для получения информации о заказе: \n/status {orderId}";
+                                                        $"📦 Остаток: {orderInfo["remains"]}\n";
 
                                                     await _botClient.SendMessage(UserId, statusMessage, replyMarkup: inlineKeyboard);
 
-                                                    // Update user balance
-                                                    string updateQuery = "UPDATE users SET balance = @newBalance WHERE user_id = @chatId";
-                                                    using (var updateCommand = new MySqlCommand(updateQuery, connection))
+                                                    var user = await _userRepository.GetByIdAsync(UserId);
+                                                    user.Balance = user.Balance - amountToDeduct;
+                                                    await _userRepository.UpdateAsync(user);
+
+                                                    var orderModel = new Order()
                                                     {
-                                                        updateCommand.Parameters.AddWithValue("@newBalance", balance - amountToDeduct);
-                                                        updateCommand.Parameters.AddWithValue("@chatId", UserId);
-                                                        await updateCommand.ExecuteNonQueryAsync();
-                                                    }
+                                                        Id = int.Parse(orderId),
+                                                        Amount = amountToDeduct,
+                                                        Date = (DateTime)orderInfo["date"],
+                                                        Status = (string)orderInfo["status"],
+                                                    };
+
+                                                    await _orderService.CreateOrUpdateStatusOrder(UserId, orderModel);
                                                 }
                                                 else if (statusResponse.ContainsKey("error"))
                                                 {

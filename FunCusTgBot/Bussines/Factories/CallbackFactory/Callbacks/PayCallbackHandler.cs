@@ -91,8 +91,7 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                     }
                     catch (Exception ex)
                     {
-                        await _botClient.SendMessage(UserId, "Данный способ оплаты недоступен либо указана неверная сумма.");
-                        return;
+                        throw new ArgumentException("Данный способ оплаты недоступен либо указана неверная сумма.");
                     }
                 }
                 else

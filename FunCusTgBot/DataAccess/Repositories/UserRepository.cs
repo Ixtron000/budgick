@@ -12,5 +12,10 @@ namespace DataAccess.Repositories
         {
             return await _dbSet.AnyAsync(c => c.ChatId == userId);
         }
+
+        public async Task<UserEntity> GetUserByUserId(long userId)
+        {
+            return await _dbSet.FirstOrDefaultAsync(c => c.ChatId == userId);
+        }
     }
 }

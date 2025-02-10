@@ -7,13 +7,15 @@ namespace Infrastructure.Models
         private UserCommandState(long userId, string command, 
             BuyCommandModel buyCommandModel = null, 
             PayCommandModel payCommand = null,
-            CheckCommandModel checkCommand = null)
+            CheckCommandModel checkCommand = null,
+            OrdersCommandModel ordersCommand = null)
         {
             UserId = userId;
             Command = command;
             BuyCommand = buyCommandModel;
             PayCommand = payCommand;
             CheckCommand = checkCommand;
+            OrdersCommand = ordersCommand;
         }
 
         public long UserId { get; }
@@ -25,6 +27,8 @@ namespace Infrastructure.Models
         public PayCommandModel PayCommand { get; }
 
         public CheckCommandModel CheckCommand { get; }
+
+        public OrdersCommandModel OrdersCommand { get; }
 
         public static UserCommandState Create(long userId, string command)
         {
@@ -44,6 +48,12 @@ namespace Infrastructure.Models
             {
                 var commandModel = new CheckCommandModel();
                 return new UserCommandState(userId, command, checkCommand: commandModel);
+            }
+
+            if (command == "myorders")
+            {
+                var commandModel = new OrdersCommandModel();
+                return new UserCommandState(userId, command, ordersCommand: commandModel);
             }
 
             throw new ArgumentException("Ошибка создания команды");

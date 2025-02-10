@@ -85,7 +85,8 @@ namespace Bussines.Extensions
             }
             else
             {
-                throw new ArgumentException("Команда отсутствует или находится не в начале строки.");
+                //throw new ArgumentException("Команда отсутствует или находится не в начале строки.");
+                return string.Empty;
             }
         }
     }

@@ -1,21 +1,16 @@
 ﻿using Autofac;
 using Bussines.Factories.CallbackFactory;
 using Bussines.Factories.CommandFactory;
+using Bussines.Services;
 using Infrastructure.Interfaces;
-using Infrastructure.Models.FreeKassa;
 using MySql.Data.MySqlClient;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Org.BouncyCastle.Bcpg;
-using System.Security.Cryptography;
-using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 using TgBot;
 using TgBot.Extensions;
-using Bussines.Services;
 
 class Program
 {
@@ -146,31 +141,31 @@ class Program
 
         var inlineKeyboard = new InlineKeyboardMarkup(new[]
         {
-        new[]
-        {
-            InlineKeyboardButton.WithCallbackData("Telegram 📱", "telegram"),
-            InlineKeyboardButton.WithCallbackData("VK 🔵", "vk")
-        },
-        new[]
-        {
-            InlineKeyboardButton.WithCallbackData("TikTok 🎵", "tiktok"),
-            InlineKeyboardButton.WithCallbackData("YouTube ▶️", "youtube")
-        },
-        new[]
-        {
-            InlineKeyboardButton.WithCallbackData("Instagram 📸", "instagram"),
-            InlineKeyboardButton.WithCallbackData("Rutube 🔷", "rutube")
-        },
-        new[]
-        {
-            InlineKeyboardButton.WithCallbackData("Дзен 💚", "dzen"),
-            InlineKeyboardButton.WithCallbackData("shedevrum ✨", "shedevrum")
-        },
-        new[]
-        {
-            InlineKeyboardButton.WithCallbackData("Музыка 📣", "music"),
-        }
-    });
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Telegram 📱", "telegram"),
+                InlineKeyboardButton.WithCallbackData("VK 🔵", "vk")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("TikTok 🎵", "tiktok"),
+                InlineKeyboardButton.WithCallbackData("YouTube ▶️", "youtube")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Instagram 📸", "instagram"),
+                InlineKeyboardButton.WithCallbackData("Rutube 🔷", "rutube")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Дзен 💚", "dzen"),
+                InlineKeyboardButton.WithCallbackData("shedevrum ✨", "shedevrum")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Музыка 📣", "music"),
+            }
+        });
 
         // Сохранение информации о пользователе в базу данных
         using (var connection = new MySqlConnection(ConnectionString))
@@ -344,7 +339,7 @@ class Program
                 decimal rate = service["rate"].Value<decimal>();
                 int price = (int)rate;
                 string serviceDetails = $@"
-🔸Товар №{serviceId} 🔸
+                                🔸Товар №{serviceId} 🔸
 
 🟥 Название: {service["name"]}
 🟦 Цена за тысячу: {price * 2} ₽
@@ -363,24 +358,24 @@ class Program
                         InlineKeyboardButton.WithCallbackData("🔙 Назад", service["category"].ToString())
                     }
                 });
-                await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, serviceDetails, replyMarkup: inlineKeyboard);
 
+                await botClient.EditMessageText(new ChatId(chatId), update.CallbackQuery.Message.Id, serviceDetails, replyMarkup: inlineKeyboard);
             }
             else
             {
                 var msg = "⚠️ Услуга не найдена.";
-                await botClient.EditMessageTextAsync(new ChatId(chatId), update.CallbackQuery.Message.Id, msg);
+                await botClient.EditMessageText(new ChatId(chatId), update.CallbackQuery.Message.Id, msg);
             }
         }
         catch (HttpRequestException e)
         {
             Console.WriteLine("Ошибка запроса: " + e.Message);
-            await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при получении деталей услуги. 😔");
+            await botClient.SendMessage(chatId, "Произошла ошибка при получении деталей услуги. 😔");
         }
         catch (Newtonsoft.Json.JsonReaderException e)
         {
             Console.WriteLine("Ошибка парсинга JSON: " + e.Message);
-            await botClient.SendTextMessageAsync(chatId, "Произошла ошибка при парсинге ответа. 😔");
+            await botClient.SendMessage(chatId, "Произошла ошибка при парсинге ответа. 😔");
         }
     }
     // отмена заказа
@@ -462,71 +457,6 @@ class Program
                             Console.WriteLine($"User with ChatID {chatId} and Username {message.From.Username} processed.");
                             await Start(botClient, chatId, message.From.Username);
                             return;
-                        }
-                    }
-                    else if (messageText.StartsWith("/status"))
-                    {
-                        var parts = messageText.Split(' ');
-                        if (parts.Length < 2)
-                        {
-                            await botClient.SendTextMessageAsync(chatId, "Вы неверно указали данные.\n\nПример: /status order_id");
-                        }
-                        else
-                        {
-                            if (string.IsNullOrEmpty(parts[1]))
-                            {
-                                await botClient.SendTextMessageAsync(chatId, "Вы не указали идентификатор заказа.");
-                            }
-                            else
-                            {
-                                try
-                                {
-                                    string orderId = parts[1];
-                                    string statusResponseBody = await HttpClient.GetStringAsync($"https://soc-rocket.ru/api/v2/?action=status&orders={orderId}&key=bXmgSXp94cHDrOmaNbhNtGtlEoSmniiP");
-                                    JObject statusResponse = JObject.Parse(statusResponseBody);
-
-                                    if (statusResponse.ContainsKey(orderId))
-                                    {
-
-                                        var orderInfo = statusResponse[orderId];
-                                        decimal rate = orderInfo["charge"].Value<decimal>();
-                                        int price = (int)rate;
-                                        string statusMessage =
-                                                $"📝  Информация о заказе {orderId}:\n\n" +
-                                                                   $"🔴 Стоимость: {price} {orderInfo["currency"]}\n" +
-                                                                   $"🔹 ID: {orderInfo["service"]}\n" +
-                                                                   $"🌐 Ссылка: {orderInfo["link"]}\n" +
-                                                                   $"📦 Количество: {orderInfo["quantity"]}\n" +
-                                                                   $"📊 Начальное количество: {orderInfo["start_count"]}\n" +
-                                                                   $"📅 Дата: {orderInfo["date"]}\n" +
-                                                                   $"✅ Статус: {orderInfo["status"]}\n" +
-                                                                   $"📦 Остаток: {orderInfo["remains"]}";
-
-                                        var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                                        {
-                        new[]
-                        {
-                            InlineKeyboardButton.WithCallbackData("🔙 Главная", "main")
-                        }
-                    });
-
-                                        await botClient.SendTextMessageAsync(chatId, statusMessage, replyMarkup: inlineKeyboard);
-                                    }
-                                    else if (statusResponse.ContainsKey("error"))
-                                    {
-                                        string errorMessage = $"Ошибка при получении статуса заказа {orderId}: {statusResponse["error"]}";
-                                        await botClient.SendTextMessageAsync(chatId, errorMessage);
-                                    }
-                                    else
-                                    {
-                                        await botClient.SendTextMessageAsync(chatId, "Неизвестный ответ от сервера.");
-                                    }
-                                }
-                                catch (HttpRequestException e)
-                                {
-                                    await botClient.SendTextMessageAsync(chatId, $"Ошибка запроса: {e.Message}");
-                                }
-                            }
                         }
                     }
                     else if (messageText == "/help")
@@ -629,11 +559,11 @@ class Program
                                                               $"Balance: {reader["balance"]}\n"
                                                               ;
 
-                                            await botClient.SendTextMessageAsync(chatId, userInfo);
+                                            await botClient.SendMessage(chatId, userInfo);
                                         }
                                         else
                                         {
-                                            await botClient.SendTextMessageAsync(chatId, "Пользователь не найден.");
+                                            await botClient.SendMessage(chatId, "Пользователь не найден.");
                                         }
                                     }
                                 }
@@ -648,14 +578,6 @@ class Program
             }
             if (update.CallbackQuery is { } callbackQuery)
             {
-                var callbackHandler = CallbackHandlerFactory.GetHandler(_scope, botClient, update, ConnectionString);
-
-                if (callbackHandler is not null)
-                {
-                    await callbackHandler.ExecuteAsync();
-                    return;
-                }
-
                 var chatId = callbackQuery.Message.Chat.Id;
                 var callbackData = callbackQuery.Data;
                 if (int.TryParse(callbackData, out int serviceId))
@@ -785,7 +707,17 @@ class Program
                             await SendFilteredItemsAsync("music", chatId, botClient, update);
                             break;
                         default:
+                            {
+                                var callbackHandler = CallbackHandlerFactory.GetHandler(_scope, botClient, update, ConnectionString);
+
+                                if (callbackHandler is not null)
+                                {
+                                    await callbackHandler.ExecuteAsync();
+                                    return;
+                                }
+
                                 await botClient.SendMessage(chatId, "⚠️ Неизвестная команда.");
+                            }
                             break;
                     }
                 }

@@ -38,6 +38,10 @@ namespace Bussines.Factories.CallbackFactory
                     {
                         return new CheckCallbackHandler(scope, botClient, update, connectionString);
                     }
+                case "myorders":
+                    {
+                        return new OrdersCallbackHandler(scope, botClient, update, connectionString);
+                    }
                 default:
                     return null;
             }
