@@ -1,6 +1,7 @@
 ﻿using Autofac;
 using Bussines.Factories.CommandFactory;
 using Infrastructure.Enums;
+using Infrastructure.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Telegram.Bot;
@@ -44,12 +45,23 @@ namespace Bussines.Factories.CallbackFactory.Callbacks
                     var ordersArray = JArray.Parse(orderResponse["orders"].ToString());
                     foreach (var order in ordersArray)
                     {
+                        var orderModel = new Order()
+                        {
+                            Id = (int)order["fk_order_id"],
+                            Amount = (decimal)order["amount"],
+                            Date = (DateTime)order["date"],
+                            Status = (string)order["status"],
+                        };
+
+                        await _orderService.CreateOrUpdateStatusOrder(UserId, orderModel);
+
                         var statusMessage = "Платеж не оплачен❌";
-                        if ((int)order["status"] == 1)
+                        if (orderModel.Status == "1")
                         {
                             var user = await _userRepository.GetByIdAsync(UserId);
-                            user.Balance = user.Balance + (decimal)order["amount"];
+                            user.Balance = user.Balance + orderModel.Amount;
                             await _userRepository.UpdateAsync(user);
+
                             statusMessage = "Платеж был зачислен💚";
                         }
 

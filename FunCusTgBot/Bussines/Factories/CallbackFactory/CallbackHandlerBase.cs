@@ -14,7 +14,9 @@ namespace Bussines.Factories.CallbackFactory
     {
         protected readonly FreeKassaService _freeKassaService = new FreeKassaService();
         protected readonly IUserRepository _userRepository;
+        protected readonly IOrderRepository _orderRepository;
         protected readonly ITelegramBotClient _botClient;
+        protected readonly IOrderService _orderService;
         protected readonly Update _update;
 
         protected CallbackHandlerBase(ILifetimeScope scope, ITelegramBotClient botClient, Update update, string connectionString)
@@ -23,6 +25,8 @@ namespace Bussines.Factories.CallbackFactory
             _update = update;
 
             _userRepository = scope.Resolve<IUserRepository>();
+            _orderRepository = scope.Resolve<IOrderRepository>();
+            _orderService = scope.Resolve<IOrderService>();
 
             InitCommandState();
 
